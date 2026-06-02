@@ -1,6 +1,17 @@
 ClearAll["Global`*"];
 $HistoryLength = 0;
 
+commandLineArgs[] := Module[{scriptArgs, cmd, pos},
+  scriptArgs = If[ListQ[$ScriptCommandLine] && Length[$ScriptCommandLine] > 0,
+    Rest[$ScriptCommandLine],
+    {}
+  ];
+  If[scriptArgs =!= {}, Return[scriptArgs]];
+  cmd = If[ListQ[$CommandLine], $CommandLine, {}];
+  pos = FirstPosition[cmd, $InputFileName, Missing["NotFound"], {1}];
+  If[MatchQ[pos, {_Integer}], Drop[cmd, First[pos]], {}]
+];
+
 scriptFile = If[StringQ[$InputFileName] && $InputFileName =!= "",
   $InputFileName,
   First[$ScriptCommandLine]
@@ -10,7 +21,7 @@ rootDir = DirectoryName[scriptDir];
 dataDir = FileNameJoin[{rootDir, "data"}];
 packageFile = FileNameJoin[{rootDir, "Chess.wl"}];
 
-args = Rest[$ScriptCommandLine];
+args = commandLineArgs[];
 caseName = If[Length[args] >= 1, ToUpperCase[args[[1]]], "DP"];
 nodes = If[Length[args] >= 2, ToExpression[args[[2]]], 24];
 kernels = If[Length[args] >= 3, ToExpression[args[[3]]], 1];
@@ -19,12 +30,15 @@ precisionA = If[Length[args] >= 5, ToExpression[args[[5]]], 100];
 
 ClearAll[
   requireFile,
-  boundaryCoefficients,
-  expressionCoefficients,
+  dpCoefficientMatrix,
   maxAbs,
   formatNumber,
   formatValue,
   unifiedAtilde,
+  referenceMatrix,
+  setupDP,
+  setup3L5P,
+  setupBanana3,
   setupCase
 ];
 
@@ -35,12 +49,13 @@ requireFile[file_] := If[
   file
 ];
 
-boundaryCoefficients[file_, emin_Integer, emax_Integer] :=
-  Table[SeriesCoefficient[#, {ep, 0, j}], {j, emin, emax}] & /@
-    (Get[file] /. InputForm[a__] :> a)[[2]];
-
-expressionCoefficients[file_, emin_Integer, emax_Integer] :=
-  Table[SeriesCoefficient[#, {eps, 0, j}], {j, emin, emax}] & /@ Get[file];
+dpCoefficientMatrix[file_, prec_Integer] := Module[{raw},
+  raw = Get[requireFile[file]] /. InputForm[a__] :> a;
+  SetPrecision[
+    Table[SeriesCoefficient[expr, {ep, 0, j}], {expr, raw[[2]]}, {j, -4, 2}],
+    prec
+  ]
+];
 
 maxAbs[x_] := Max[Abs[Flatten[N[x, Min[60, precision]]]]];
 formatNumber[x_] := ToString[FortranForm[N[x, 16]]];
@@ -54,64 +69,96 @@ unifiedAtilde[raw_] := SparseArray[
   }
 ];
 
+referenceMatrix[iqbarVector_, qValue_, prec_Integer] := Module[{qPrec},
+  qPrec = SetPrecision[qValue, prec];
+  Block[
+    {$MaxExtraPrecision = 1000},
+    N[
+      Table[
+        SeriesCoefficient[iqbarVector[[row]], {eps, 0, coeff}] /. qbar -> qPrec,
+        {row, Length[iqbarVector]},
+        {coeff, 0, 6}
+      ],
+      prec
+    ]
+  ]
+];
+
 Get[requireFile[packageFile]];
 
-setupCase["DP"] := Module[{dir = FileNameJoin[{dataDir, "DP"}], emin = -4, emax = 2},
+setupDP[] := Module[{dir = FileNameJoin[{dataDir, "DP"}]},
   CHESSClearCaches[];
   dLettersLine = Get[requireFile[FileNameJoin[{dir, "dLettersLine.txt"}]]];
-  Atilde = Get[requireFile[FileNameJoin[{dir, "Atilde.txt"}]]];
+  Atilde = SparseArray[Get[requireFile[FileNameJoin[{dir, "Atilde.txt"}]]]];
   CHESSAtildeLinearData[];
-  boundaryValues = boundaryCoefficients[
-    FileNameJoin[{dir, "boundary_pr1_weight6.txt"}],
-    emin,
-    emax
-  ];
-  referenceValues = boundaryCoefficients[
-    FileNameJoin[{dir, "reference_pr2_weight6.txt"}],
-    emin,
-    emax
-  ];
+  boundaryValues = dpCoefficientMatrix[FileNameJoin[{dir, "boundary_pr1_weight6.txt"}], precision];
+  referenceValues = dpCoefficientMatrix[FileNameJoin[{dir, "reference_pr2_weight6.txt"}], precision];
   regularizedEndpoints = {};
-  referenceLabel = "DP reference point";
+  referenceLabel = "AMFlow physical-region point";
+  atFunction = nAt;
+  setupLabel = "DP physical-region transport";
 ];
 
-setupCase["HB"] := Module[{dir = FileNameJoin[{dataDir, "HB"}], emin = -4, emax = 0},
-  CHESSClearCaches[];
-  dLettersLine = Get[requireFile[FileNameJoin[{dir, "dLettersLine.m"}]]];
-  Atilde = Get[requireFile[FileNameJoin[{dir, "Atilde.txt"}]]];
-  CHESSAtildeLinearData[];
-  boundaryValues = boundaryCoefficients[
-    FileNameJoin[{dir, "boundary_E1_weight6.txt"}],
-    emin,
-    emax
-  ];
-  referenceValues = expressionCoefficients[
-    FileNameJoin[{dir, "reference_E1_60digits_noExpGamma.m"}],
-    emin,
-    emax
-  ];
-  regularizedEndpoints = {"Right"};
-  referenceLabel = "HB independent reference";
-];
-
-setupCase["BHB"] := Module[{dir = FileNameJoin[{dataDir, "BHB"}]},
+setup3L5P[family_] := Module[{dir = FileNameJoin[{dataDir, "3L5P", family}], manifest},
   CHESSClearCaches[];
   dLettersLine = Get[requireFile[FileNameJoin[{dir, "dLettersLine.wl"}]]];
   Atilde = unifiedAtilde[Get[requireFile[FileNameJoin[{dir, "Atilde.m"}]]]];
   CHESSAtildeLinearData[];
   boundaryValues = SetPrecision[
-    Transpose[Get[requireFile[FileNameJoin[{dir, "boundary_num.m"}]]]],
+    Transpose[Get[requireFile[FileNameJoin[{dir, "BCnum.m"}]]]],
     precision
   ];
-  referenceValues = Missing["NoReferenceInRelease"];
+  manifest = Get[requireFile[FileNameJoin[{dir, "manifest.m"}]]];
+  referenceValues = Missing["NoIndependentReferenceInRelease"];
   regularizedEndpoints = {"Left"};
-  referenceLabel = "node-convergence example";
+  referenceLabel = "node-convergence benchmark";
+  atFunction = nAt;
+  setupLabel = "3L5P " <> family <> " left-regularized transport";
+  targetPoint = "TargetPoint" /. manifest;
 ];
 
-setupCase[_] := (
-  Print["UNKNOWN_CASE: ", caseName, ". Use DP, HB, or BHB."];
-  Quit[2];
-);
+setupBanana3[] := Module[
+  {
+    dir = FileNameJoin[{dataDir, "Banana3"}],
+    config,
+    q0,
+    q1,
+    matrixLine,
+    iqbarVector
+  },
+  CHESSClearCaches[];
+  config = Get[requireFile[FileNameJoin[{dir, "config_banana3.wl"}]]];
+  Atilde = Get[requireFile[FileNameJoin[{dir, "Atilde_banana3.wl"}]]];
+  matrixLine = Get[requireFile[FileNameJoin[{dir, "matrixLine_banana3.wl"}]]];
+  iqbarVector = Get[requireFile[FileNameJoin[{dir, "IqbarVector_banana3.wl"}]]];
+  q0 = "q0" /. config;
+  q1 = "q1" /. config;
+  ClearAll[banana3At];
+  Options[banana3At] = {"Precision" -> precisionA};
+  banana3At[tvalue_, OptionsPattern[]] := Module[{p},
+    p = OptionValue["Precision"];
+    SparseArray[N[matrixLine /. t -> N[tvalue, p], p]]
+  ];
+  boundaryValues = referenceMatrix[iqbarVector, q0, precision];
+  referenceValues = referenceMatrix[iqbarVector, q1, precision];
+  regularizedEndpoints = {};
+  referenceLabel = "Iqbar q-series reference at q1";
+  atFunction = banana3At;
+  setupLabel = "three-loop equal-mass banana transport";
+  Quiet @ Check[DistributeDefinitions[matrixLine, banana3At, t], Null];
+];
+
+setupCase[name_] := Which[
+  MemberQ[{"DP", "DPPHYSICAL", "DP_PHYSICAL"}, name],
+    setupDP[],
+  MemberQ[{"PBB", "BPB", "BHB", "PBP"}, name],
+    setup3L5P[name],
+  MemberQ[{"BANANA", "BANANA3", "ELLIPTICBANANA"}, name],
+    setupBanana3[],
+  True,
+    Print["UNKNOWN_CASE: ", name, ". Use DP, PBB, BPB, BHB, PBP, or BANANA3."];
+    Quit[2]
+];
 
 Print[
   "CHESS_RELEASE_EXAMPLE case=", caseName,
@@ -124,14 +171,15 @@ Print[
 setupCase[caseName];
 
 Print[
-  "matrixDimensions=", Dimensions[Atilde],
+  "setupLabel=", setupLabel,
+  " matrixDimensions=", Dimensions[Atilde],
   " boundaryDimensions=", Dimensions[boundaryValues],
   " regularizedEndpoints=", regularizedEndpoints
 ];
 
 {wallTime, result} = AbsoluteTiming[
   SpectralPropagate[
-    nAt,
+    atFunction,
     boundaryValues,
     {0, 1},
     "Nodes" -> nodes,
@@ -140,7 +188,8 @@ Print[
     "EndpointRegularizationPrecision" -> precisionA,
     "ParallelEvaluation" -> If[kernels > 1, True, False],
     "ParallelKernels" -> kernels,
-    "RegularizedEndpoints" -> regularizedEndpoints
+    "RegularizedEndpoints" -> regularizedEndpoints,
+    "SolveStrategy" -> "SequentialEpsilon"
   ]
 ];
 
@@ -164,4 +213,5 @@ Print[
   " finalChecksum=", formatValue[Total[Flatten[final]]]
 ];
 
+Quiet[CloseKernels[]];
 Quit[0];

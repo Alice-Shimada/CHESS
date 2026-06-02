@@ -1,0 +1,4 @@
+CHESS_RELEASE_EXAMPLE case=BHB nodes=8 kernels=1 precision=60 precisionA=80
+setupLabel=3L5P BHB left-regularized transport matrixDimensions={431, 431} boundaryDimensions={431, 7} regularizedEndpoints={Left}
+resultDimensions={431, 7} wallTimeSeconds=0.868142 referenceLabel=node-convergence benchmark maxReferenceError=not_available
+endpointInfo={{0, 194, 11}} finalChecksum=26322.18748957038359644326749470697841280503`20.

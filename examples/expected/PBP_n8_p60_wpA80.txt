@@ -1,0 +1,4 @@
+CHESS_RELEASE_EXAMPLE case=PBP nodes=8 kernels=1 precision=60 precisionA=80
+setupLabel=3L5P PBP left-regularized transport matrixDimensions={734, 734} boundaryDimensions={734, 7} regularizedEndpoints={Left}
+resultDimensions={734, 7} wallTimeSeconds=2.583386 referenceLabel=node-convergence benchmark maxReferenceError=not_available
+endpointInfo={{0, 188, 17}} finalChecksum=40871.47826083310808040119674108903835407873`20.

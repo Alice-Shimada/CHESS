@@ -1,0 +1,4 @@
+CHESS_RELEASE_EXAMPLE case=BPB nodes=8 kernels=1 precision=60 precisionA=80
+setupLabel=3L5P BPB left-regularized transport matrixDimensions={367, 367} boundaryDimensions={367, 7} regularizedEndpoints={Left}
+resultDimensions={367, 7} wallTimeSeconds=0.608482 referenceLabel=node-convergence benchmark maxReferenceError=not_available
+endpointInfo={{0, 200, 5}} finalChecksum=30614.98749050656539356141565437047653097174`20.15051499783199 + 0``15.6645809115159*I

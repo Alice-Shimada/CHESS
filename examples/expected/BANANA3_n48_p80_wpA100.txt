@@ -1,0 +1,4 @@
+CHESS_RELEASE_EXAMPLE case=BANANA3 nodes=48 kernels=1 precision=80 precisionA=100
+setupLabel=three-loop equal-mass banana transport matrixDimensions={4, 4} boundaryDimensions={4, 7} regularizedEndpoints={}
+resultDimensions={4, 7} wallTimeSeconds=0.066204 referenceLabel=Iqbar q-series reference at q1 maxReferenceError=5.462131252004758e-16
+endpointInfo={} finalChecksum=-669661.86460281268190908454437566770843526273`20.

@@ -12,9 +12,11 @@ ClearAll[
   CHESSAtildeLinearCombination,
   $CHESSAtildeLinearHash,
   $CHESSAtildeLinearData,
-  $CHESSCacheGeneration
+  $CHESSCacheGeneration,
+  $CHESSVersion
 ];
 
+$CHESSVersion = "0.1.0";
 $CHESSCacheGeneration = 0;
 
 nAt::nodata = "Set global dLettersLine and Atilde, or a cached $CHESSAtildeLinearData, before calling nAt.";
@@ -23,14 +25,22 @@ CHESSBuildAtildeLinearData::badlog =
 CHESSAtildeLinearCombination::slots =
   "dLettersLine has length `1`, but Atilde uses logW slot `2`.";
 
+nAt::usage = "nAt[t] evaluates the cached one-dimensional differential-equation matrix at path parameter t, using global Atilde and dLettersLine.";
+SpectralPropagate::usage = "SpectralPropagate[nAfun, y0, {x0, x1}, opts] transports epsilon coefficients from x0 to x1 by Chebyshev--Lobatto collocation.";
+CHESSFinalState::usage = "CHESSFinalState[result] returns the transported epsilon-coefficient matrix at the right endpoint.";
+CHESSEndpointInfo::usage = "CHESSEndpointInfo[result] returns endpoint regularization diagnostics stored in a CHESS result.";
+CHESSClearCaches::usage = "CHESSClearCaches[] clears cached Atilde decompositions, endpoint data, and node operators.";
+CHESSAtildeLinearData::usage = "CHESSAtildeLinearData[] returns the cached sparse letter-slot decomposition {zero, slots, matrices} of the current Atilde.";
+CHESSAtildeLinearCombination::usage = "CHESSAtildeLinearCombination[values, prec] combines cached Atilde letter matrices with dLog values.";
+
 (* Normalize the public Atilde input convention to internal logW[i] markers. *)
 CHESSNormalizeAtildeInput[mat_] :=
   mat /. Log[W[i_Integer]] :> logW[i];
 
-(* Split Atilde into a constant sparse matrix and sparse matrices multiplying logW slots.
-   This makes each numerical B(t) evaluation a linear combination of cached matrices. *)
+(* Split Atilde into sparse matrices multiplying logW slots.  Terms independent
+   of logW are constants in Atilde and disappear after differentiating. *)
 CHESSBuildAtildeLinearData[mat_] := Module[
-  {normalized, sparse, dims, rules, harvested, constEntries, slotEntries, constRules, slots, matrices},
+  {normalized, sparse, dims, rules, harvested, slotEntries, slots, matrices},
 
   (* The package has one public letter convention.  Any family-specific heads
      must be converted by the caller before this decomposition is built. *)
@@ -46,11 +56,11 @@ CHESSBuildAtildeLinearData[mat_] := Module[
   dims = Dimensions[sparse];
   rules = Most[ArrayRules[sparse]];
 
-  (* For each nonzero entry, separate the constant part and the coefficient of
-     each logW slot.  Reap/Sow groups entries by slot without keyed containers. *)
+  (* For each nonzero entry, extract only coefficients of logW slots.  Reap/Sow
+     groups entries by slot without keyed containers. *)
   harvested = Reap[
     Do[
-      Module[{pos, expr, exprVars, constTerm, coeff},
+      Module[{pos, expr, exprVars, coeff},
         pos = rules[[r, 1]];
         expr = rules[[r, 2]];
 
@@ -62,10 +72,8 @@ CHESSBuildAtildeLinearData[mat_] := Module[
           {0, Infinity}
         ];
 
-        (* Constant entries are stored as slot 0; every real letter has its own
-           sparse coefficient matrix. *)
-        constTerm = expr /. logW[_] -> 0;
-        If[constTerm =!= 0, Sow[pos -> constTerm, 0]];
+        (* Every letter slot has its own sparse coefficient matrix.  Pure
+           constants have no logW slot and contribute nothing to B(t). *)
         Do[
           coeff = Coefficient[expr, exprVars[[slot, 2]]];
           If[coeff =!= 0, Sow[pos -> coeff, exprVars[[slot, 1]]]],
@@ -77,15 +85,13 @@ CHESSBuildAtildeLinearData[mat_] := Module[
     _,
     List
   ][[2]];
-  constEntries = Cases[harvested, {0, items_} :> items];
-  constRules = If[constEntries === {}, {}, Flatten[constEntries, 1]];
-  slotEntries = Select[harvested, #[[1]] =!= 0 &];
+  slotEntries = harvested;
   slots = If[slotEntries === {}, {}, slotEntries[[All, 1]]];
 
-  (* The result is positional: {constant matrix, letter slots, slot matrices}.
+  (* The result is positional: {zero matrix, letter slots, slot matrices}.
      Keeping this as plain lists avoids keyed-container overhead in the hot path. *)
   matrices = If[slotEntries === {}, {}, SparseArray[Flatten[#[[2]], 1], dims] & /@ slotEntries];
-  {SparseArray[constRules, dims], slots, matrices}
+  {SparseArray[{}, dims], slots, matrices}
 ];
 
 (* Cache the sparse linear decomposition of the current global Atilde. *)
@@ -108,20 +114,20 @@ CHESSAtildeLinearData[] := Module[{hash},
   $CHESSAtildeLinearData = CHESSBuildAtildeLinearData[Atilde]
 ];
 
+Options[CHESSAtildeLinearCombination] = {};
+
 (* Evaluate the cached Atilde decomposition after dLog letter values are known. *)
-CHESSAtildeLinearCombination[values_, prec_] := Module[
-  {data, const, slots, matrices, acc, i, maxSlot},
+CHESSAtildeLinearCombination[values_, prec_, OptionsPattern[]] := Module[
+  {data, slots, matrices, acc, i, maxSlot, dims},
   data = CHESSAtildeLinearData[];
   If[data === $Failed, Return[$Failed]];
 
-  (* The constant block is usually zero, but keeping it in the same path allows
-     mildly noncanonical inputs without special cases downstream. *)
-  const = N[data[[1]], prec];
+  dims = Dimensions[data[[1]]];
   slots = data[[2]];
   matrices = data[[3]];
   If[
     slots === {},
-    const,
+    SparseArray[{}, dims],
     maxSlot = Max[slots];
 
     (* A short dLettersLine would silently pick wrong data via Part errors; fail
@@ -133,7 +139,7 @@ CHESSAtildeLinearCombination[values_, prec_] := Module[
 
     (* Accumulate in place rather than materializing a list of sparse matrices
        at every node evaluation. *)
-    acc = const;
+    acc = SparseArray[{}, dims];
     Do[
       acc = acc + N[values[[slots[[i]]]], prec] matrices[[i]],
       {i, Length[slots]}
@@ -214,6 +220,11 @@ ClearAll[
 
 SpectralPropagate::solvefail =
   "Linear solve failed at epsilon layer `1`; returned head `2` with dimensions `3`.";
+
+SpectralPropagate::usage = "SpectralPropagate[nAfun, y0, {x0, x1}, opts] transports epsilon coefficients from x0 to x1 by Chebyshev--Lobatto collocation.";
+CHESSFinalState::usage = "CHESSFinalState[result] returns the transported epsilon-coefficient matrix at the right endpoint.";
+CHESSEndpointInfo::usage = "CHESSEndpointInfo[result] returns endpoint regularization diagnostics stored in a CHESS result.";
+CHESSClearCaches::usage = "CHESSClearCaches[] clears cached Atilde decompositions, endpoint data, and node operators.";
 
 (* Result accessors keep the result as a compact positional list without keyed data. *)
 CHESSResultPart[result_, "Nodes"] := result[[1]];
