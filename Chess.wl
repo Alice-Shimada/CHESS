@@ -4,6 +4,15 @@
    The caller supplies dLettersLine, Atilde, and boundary values for each case.
    Atilde must use only the unified letter markers Log[W[i]] or logW[i]. *)
 
+(*
+  Release implementation policy:
+  - use ordinary positional lists instead of keyed containers;
+  - keep matrix data sparse whenever possible;
+  - keep case-specific input conversions in the examples, not in the core.
+  The result is less decorative, but faster to distribute to subkernels and
+  cheaper to index in the hot loops.
+*)
+
 ClearAll[
   nAt,
   CHESSNormalizeAtildeInput,
@@ -19,6 +28,7 @@ ClearAll[
 $CHESSVersion = "0.1.0";
 $CHESSCacheGeneration = 0;
 
+(* Public messages for malformed prepared input. *)
 nAt::nodata = "Set global dLettersLine and Atilde, or a cached $CHESSAtildeLinearData, before calling nAt.";
 CHESSBuildAtildeLinearData::badlog =
   "Atilde contains logarithms outside the unified Log[W[i]]/logW[i] interface. Convert case-specific letter formats before building the package data.";
@@ -720,14 +730,26 @@ CHESSScalarCollocationSolve[scalarSolverOrMatrix_, rhs_, n_Integer?Positive, met
 ];
 
 Options[SpectralPropagate] = {
+  (* Chebyshev-Lobatto order; the actual collocation grid has Nodes+1 points. *)
   "Nodes" -> 48,
+
+  (* Precision for the collocation solve and for numerical A(t) evaluation. *)
   "Precision" -> 160,
   "WorkingPrecisionA" -> 220,
+
+  (* LinearSolve method for the scalar collocation block. *)
   "LinearSolverMethod" -> Automatic,
+
+  (* Accepts {}, None, "Left", "Right", All, or explicit endpoint coordinates. *)
   "RegularizedEndpoints" -> {},
+
+  (* Residue and finite-part extraction can use a separate working precision. *)
   "EndpointRegularizationPrecision" -> Automatic,
+
+  (* Parallel stages are endpoint-letter extraction and node-matrix construction. *)
   "ParallelEvaluation" -> Automatic,
   "ParallelKernels" -> 1,
+
   (* Kept for older callers; the only implementation is the sequential-weight solver. *)
   "SolveStrategy" -> "SequentialEpsilon"
 };
