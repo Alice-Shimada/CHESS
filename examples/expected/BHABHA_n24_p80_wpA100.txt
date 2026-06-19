@@ -1,0 +1,4 @@
+CHESS_RELEASE_EXAMPLE case=BHABHA nodes=24 kernels=1 precision=80 precisionA=100
+setupLabel=massive Bhabha planar direct-matrix transport matrixDimensions={43, 43} boundaryDimensions={43, 5} regularizedEndpoints={} interval={0.2`100., 1.`100.}
+resultDimensions={43, 5} wallTimeSeconds=0.15669 referenceLabel=AMFlow endpoint at x=1 maxReferenceError=3.078342324571555e-9
+endpointInfo={} finalChecksum=98.55018386608296067949469559461802151118`19.554393077557968 - 376.15192804592745629945683113213006841242`20.13609893090285*I

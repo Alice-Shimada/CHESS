@@ -34,11 +34,11 @@ ClearAll[
   maxAbs,
   formatNumber,
   formatValue,
+  valueOf,
   unifiedAtilde,
-  referenceMatrix,
   setupDP,
   setup3L5P,
-  setupBanana3,
+  setupBhabha,
   setupCase
 ];
 
@@ -60,6 +60,7 @@ dpCoefficientMatrix[file_, prec_Integer] := Module[{raw},
 maxAbs[x_] := Max[Abs[Flatten[N[x, Min[60, precision]]]]];
 formatNumber[x_] := ToString[FortranForm[N[x, 16]]];
 formatValue[x_] := ToString[InputForm[N[x, 20]]];
+valueOf[rules_, key_] := key /. rules;
 
 unifiedAtilde[raw_] := SparseArray[
   raw /. {
@@ -67,21 +68,6 @@ unifiedAtilde[raw_] := SparseArray[
     Log[Wtilde[i_Integer]] :> logW[100 + i],
     Log[What[i_Integer]] :> logW[200 + i]
   }
-];
-
-referenceMatrix[iqbarVector_, qValue_, prec_Integer] := Module[{qPrec},
-  qPrec = SetPrecision[qValue, prec];
-  Block[
-    {$MaxExtraPrecision = 1000},
-    N[
-      Table[
-        SeriesCoefficient[iqbarVector[[row]], {eps, 0, coeff}] /. qbar -> qPrec,
-        {row, Length[iqbarVector]},
-        {coeff, 0, 6}
-      ],
-      prec
-    ]
-  ]
 ];
 
 Get[requireFile[packageFile]];
@@ -97,6 +83,8 @@ setupDP[] := Module[{dir = FileNameJoin[{dataDir, "DP"}]},
   referenceLabel = "AMFlow physical-region point";
   atFunction = nAt;
   setupLabel = "DP physical-region transport";
+  transportInterval = {0, 1};
+  systemDimensions = Dimensions[Atilde];
 ];
 
 setup3L5P[family_] := Module[{dir = FileNameJoin[{dataDir, "3L5P", family}], manifest},
@@ -115,37 +103,62 @@ setup3L5P[family_] := Module[{dir = FileNameJoin[{dataDir, "3L5P", family}], man
   atFunction = nAt;
   setupLabel = "3L5P " <> family <> " left-regularized transport";
   targetPoint = "TargetPoint" /. manifest;
+  transportInterval = {0, 1};
+  systemDimensions = Dimensions[Atilde];
 ];
 
-setupBanana3[] := Module[
+setupBhabha[] := Module[
   {
-    dir = FileNameJoin[{dataDir, "Banana3"}],
-    config,
-    q0,
-    q1,
-    matrixLine,
-    iqbarVector
+    dir = FileNameJoin[{dataDir, "BhabhaPL2"}],
+    matrixDir,
+    refDir,
+    leftRules,
+    rightRules,
+    dsMatrix,
+    dtMatrix,
+    sampleMatrix,
+    xStart,
+    xEnd
   },
   CHESSClearCaches[];
-  config = Get[requireFile[FileNameJoin[{dir, "config_banana3.wl"}]]];
-  Atilde = Get[requireFile[FileNameJoin[{dir, "Atilde_banana3.wl"}]]];
-  matrixLine = Get[requireFile[FileNameJoin[{dir, "matrixLine_banana3.wl"}]]];
-  iqbarVector = Get[requireFile[FileNameJoin[{dir, "IqbarVector_banana3.wl"}]]];
-  q0 = "q0" /. config;
-  q1 = "q1" /. config;
-  ClearAll[banana3At];
-  Options[banana3At] = {"Precision" -> precisionA};
-  banana3At[tvalue_, OptionsPattern[]] := Module[{p},
-    p = OptionValue["Precision"];
-    SparseArray[N[matrixLine /. t -> N[tvalue, p], p]]
+  matrixDir = FileNameJoin[{dir, "matrices"}];
+  refDir = FileNameJoin[{dir, "reference"}];
+  leftRules = Get[requireFile[FileNameJoin[{refDir, "boundary_x0p2.wl"}]]];
+  rightRules = Get[requireFile[FileNameJoin[{refDir, "reference_x1.wl"}]]];
+  If[valueOf[leftRules, "Status"] =!= "ok" || valueOf[rightRules, "Status"] =!= "ok",
+    Print["BAD_BHABHA_REFERENCE_STATUS"];
+    Quit[2];
   ];
-  boundaryValues = referenceMatrix[iqbarVector, q0, precision];
-  referenceValues = referenceMatrix[iqbarVector, q1, precision];
+  dsMatrix = Get[requireFile[FileNameJoin[{matrixDir, "ds_1.m"}]]];
+  dtMatrix = Get[requireFile[FileNameJoin[{matrixDir, "dt_1.m"}]]];
+  xStart = SetPrecision[valueOf[leftRules, "x"], precisionA];
+  xEnd = SetPrecision[valueOf[rightRules, "x"], precisionA];
+  ClearAll[bhabhaAt];
+  Options[bhabhaAt] = {"Precision" -> precisionA};
+  bhabhaAt[xvalue_, OptionsPattern[]] := Module[{p, xx, rules},
+    p = OptionValue["Precision"];
+    xx = N[xvalue, p];
+    rules = {s -> N[3 xx/10, p], t -> N[-7 xx/10, p], m2 -> 1};
+    SparseArray @ N[
+      (3/10) (dsMatrix /. rules) - (7/10) (dtMatrix /. rules),
+      p
+    ]
+  ];
+  boundaryValues = N[valueOf[leftRules, "Coefficients"], precision];
+  referenceValues = N[valueOf[rightRules, "Coefficients"], precision];
   regularizedEndpoints = {};
-  referenceLabel = "Iqbar q-series reference at q1";
-  atFunction = banana3At;
-  setupLabel = "three-loop equal-mass banana transport";
-  Quiet @ Check[DistributeDefinitions[matrixLine, banana3At, t], Null];
+  referenceLabel = "AMFlow endpoint at x=1";
+  atFunction = bhabhaAt;
+  setupLabel = "massive Bhabha planar direct-matrix transport";
+  transportInterval = {xStart, xEnd};
+  sampleMatrix = atFunction[(xStart + xEnd)/2, "Precision" -> precisionA];
+  systemDimensions = Dimensions[sampleMatrix];
+  If[systemDimensions =!= {43, 43} ||
+      !FreeQ[sampleMatrix, Indeterminate | ComplexInfinity],
+    Print["BAD_BHABHA_SAMPLE_MATRIX dimensions=", systemDimensions];
+    Quit[2];
+  ];
+  Quiet @ Check[DistributeDefinitions[dsMatrix, dtMatrix, bhabhaAt, s, t, m2], Null];
 ];
 
 setupCase[name_] := Which[
@@ -153,10 +166,10 @@ setupCase[name_] := Which[
     setupDP[],
   MemberQ[{"PBB", "BPB", "BHB", "PBP"}, name],
     setup3L5P[name],
-  MemberQ[{"BANANA", "BANANA3", "ELLIPTICBANANA"}, name],
-    setupBanana3[],
+  MemberQ[{"BHABHA", "BHABHAPL2", "BHABHA_PL2"}, name],
+    setupBhabha[],
   True,
-    Print["UNKNOWN_CASE: ", name, ". Use DP, PBB, BPB, BHB, PBP, or BANANA3."];
+    Print["UNKNOWN_CASE: ", name, ". Use DP, PBB, BPB, BHB, PBP, or BHABHA."];
     Quit[2]
 ];
 
@@ -172,16 +185,17 @@ setupCase[caseName];
 
 Print[
   "setupLabel=", setupLabel,
-  " matrixDimensions=", Dimensions[Atilde],
+  " matrixDimensions=", systemDimensions,
   " boundaryDimensions=", Dimensions[boundaryValues],
-  " regularizedEndpoints=", regularizedEndpoints
+  " regularizedEndpoints=", regularizedEndpoints,
+  " interval=", transportInterval
 ];
 
 {wallTime, result} = AbsoluteTiming[
   SpectralPropagate[
     atFunction,
     boundaryValues,
-    {0, 1},
+    transportInterval,
     "Nodes" -> nodes,
     "Precision" -> precision,
     "WorkingPrecisionA" -> precisionA,
