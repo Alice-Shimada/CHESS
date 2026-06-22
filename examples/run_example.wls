@@ -38,7 +38,7 @@ ClearAll[
   unifiedAtilde,
   setupDP,
   setup3L5P,
-  setupBhabha,
+  setupTriangleB,
   setupCase
 ];
 
@@ -107,58 +107,56 @@ setup3L5P[family_] := Module[{dir = FileNameJoin[{dataDir, "3L5P", family}], man
   systemDimensions = Dimensions[Atilde];
 ];
 
-setupBhabha[] := Module[
+setupTriangleB[] := Module[
   {
-    dir = FileNameJoin[{dataDir, "BhabhaPL2"}],
-    matrixDir,
+    dir = FileNameJoin[{dataDir, "NPTriangleB"}],
     refDir,
     leftRules,
     rightRules,
-    dsMatrix,
-    dtMatrix,
     sampleMatrix,
-    xStart,
-    xEnd
+    yStart,
+    yEnd
   },
   CHESSClearCaches[];
-  matrixDir = FileNameJoin[{dir, "matrices"}];
   refDir = FileNameJoin[{dir, "reference"}];
-  leftRules = Get[requireFile[FileNameJoin[{refDir, "boundary_x0p2.wl"}]]];
-  rightRules = Get[requireFile[FileNameJoin[{refDir, "reference_x1.wl"}]]];
+  Get[requireFile[FileNameJoin[{dir, "family_b_matrix.wl"}]]];
+  leftRules = Get[requireFile[FileNameJoin[{refDir, "boundary_y0p01.wl"}]]];
+  rightRules = Get[requireFile[FileNameJoin[{refDir, "reference_y0p05.wl"}]]];
   If[valueOf[leftRules, "Status"] =!= "ok" || valueOf[rightRules, "Status"] =!= "ok",
-    Print["BAD_BHABHA_REFERENCE_STATUS"];
+    Print["BAD_NPTRIANGLEB_REFERENCE_STATUS"];
     Quit[2];
   ];
-  dsMatrix = Get[requireFile[FileNameJoin[{matrixDir, "ds_1.m"}]]];
-  dtMatrix = Get[requireFile[FileNameJoin[{matrixDir, "dt_1.m"}]]];
-  xStart = SetPrecision[valueOf[leftRules, "x"], precisionA];
-  xEnd = SetPrecision[valueOf[rightRules, "x"], precisionA];
-  ClearAll[bhabhaAt];
-  Options[bhabhaAt] = {"Precision" -> precisionA};
-  bhabhaAt[xvalue_, OptionsPattern[]] := Module[{p, xx, rules},
+  yStart = SetPrecision[valueOf[leftRules, "y"], precisionA];
+  yEnd = SetPrecision[valueOf[rightRules, "y"], precisionA];
+  ClearAll[nPTriangleBAt];
+  Options[nPTriangleBAt] = {"Precision" -> precisionA};
+  nPTriangleBAt[yvalue_, OptionsPattern[]] := Module[{p},
     p = OptionValue["Precision"];
-    xx = N[xvalue, p];
-    rules = {s -> N[3 xx/10, p], t -> N[-7 xx/10, p], m2 -> 1};
-    SparseArray @ N[
-      (3/10) (dsMatrix /. rules) - (7/10) (dtMatrix /. rules),
-      p
-    ]
+    NPTriangleBSubsectorMatrix[yvalue, "Precision" -> p]
   ];
   boundaryValues = N[valueOf[leftRules, "Coefficients"], precision];
   referenceValues = N[valueOf[rightRules, "Coefficients"], precision];
   regularizedEndpoints = {};
-  referenceLabel = "AMFlow endpoint at x=1";
-  atFunction = bhabhaAt;
-  setupLabel = "massive Bhabha planar direct-matrix transport";
-  transportInterval = {xStart, xEnd};
-  sampleMatrix = atFunction[(xStart + xEnd)/2, "Precision" -> precisionA];
+  referenceLabel = "AMFlow endpoint at y=1/20";
+  atFunction = nPTriangleBAt;
+  setupLabel = "non-planar triangle family b direct-matrix transport";
+  transportInterval = {yStart, yEnd};
+  sampleMatrix = atFunction[(yStart + yEnd)/2, "Precision" -> precisionA];
   systemDimensions = Dimensions[sampleMatrix];
-  If[systemDimensions =!= {43, 43} ||
+  If[systemDimensions =!= {15, 15} ||
       !FreeQ[sampleMatrix, Indeterminate | ComplexInfinity],
-    Print["BAD_BHABHA_SAMPLE_MATRIX dimensions=", systemDimensions];
+    Print["BAD_NPTRIANGLEB_SAMPLE_MATRIX dimensions=", systemDimensions];
     Quit[2];
   ];
-  Quiet @ Check[DistributeDefinitions[dsMatrix, dtMatrix, bhabhaAt, s, t, m2], Null];
+  Quiet @ Check[
+    DistributeDefinitions[
+      NPTriangleBPeriodData,
+      NPTriangleBMatrix,
+      NPTriangleBSubsectorMatrix,
+      nPTriangleBAt
+    ],
+    Null
+  ];
 ];
 
 setupCase[name_] := Which[
@@ -166,10 +164,10 @@ setupCase[name_] := Which[
     setupDP[],
   MemberQ[{"PBB", "BPB", "BHB", "PBP"}, name],
     setup3L5P[name],
-  MemberQ[{"BHABHA", "BHABHAPL2", "BHABHA_PL2"}, name],
-    setupBhabha[],
+  MemberQ[{"NPTB", "TRIANGLEB", "NPTRIANGLEB", "NP_TRIANGLE_B"}, name],
+    setupTriangleB[],
   True,
-    Print["UNKNOWN_CASE: ", name, ". Use DP, PBB, BPB, BHB, PBP, or BHABHA."];
+    Print["UNKNOWN_CASE: ", name, ". Use DP, PBB, BPB, BHB, PBP, or NPTB."];
     Quit[2]
 ];
 

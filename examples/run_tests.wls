@@ -14,7 +14,7 @@ tests = {
   {"BPB", 8, 1, 60, 80, Missing["NoIndependentReference"]},
   {"BHB", 8, 1, 60, 80, Missing["NoIndependentReference"]},
   {"PBP", 8, 1, 60, 80, Missing["NoIndependentReference"]},
-  {"BHABHA", 24, 1, 80, 100, 10^-7}
+  {"NPTB", 48, 1, 100, 140, 10^-15}
 };
 
 ClearAll[extractError, formatValue, runOne];
