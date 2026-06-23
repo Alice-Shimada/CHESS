@@ -13,6 +13,7 @@ NPTriangleBPeriodData[yIn_, wp_] := Module[
   u3 = -((r8 - 1)^2)/4;
   u4 = 0;
   k2 = (1 - 4 y - 8 y^2 - r8)/(1 - 4 y - 8 y^2 + r8);
+  (* EllipticK[m] is the complete elliptic integral of the first kind with parameter m = k^2. *)
   psi0 = N[(2/Pi) y^2 EllipticK[k2]/Sqrt[(u3 - u1) (u4 - u2)], wp];
   wronskian = y^3/((1 - 8 y) (1 + y));
   jacobian = psi0^2/wronskian;

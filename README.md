@@ -105,4 +105,6 @@ The NPTB example shows the more general interface: users may supply any
 matrix-valued function `nAfun[t]`, not necessarily one assembled from prepared
 dlog letters.  In that example the runner evaluates the family-b matrix from
 Ref. arXiv:2305.13951 directly on the path `y=1/100` to `y=1/20`; the matrix
-entries include elliptic periods through complete elliptic integrals.
+entries include the period `psi0(y)`, built from Mathematica's `EllipticK[m]`,
+the complete elliptic integral of the first kind with parameter `m = k^2`.  The
+release example does not evaluate `EllipticE`.
