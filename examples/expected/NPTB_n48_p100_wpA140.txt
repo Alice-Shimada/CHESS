@@ -1,4 +1,4 @@
 CHESS_RELEASE_EXAMPLE case=NPTB nodes=48 kernels=1 precision=100 precisionA=140
-setupLabel=non-planar triangle family b direct-matrix transport matrixDimensions={15, 15} boundaryDimensions={15, 5} regularizedEndpoints={} interval={0.01`140., 0.05`140.}
-resultDimensions={15, 5} wallTimeSeconds=0.045136 referenceLabel=AMFlow endpoint at y=1/20 maxReferenceError=5.888554021539125e-19
-endpointInfo={} finalChecksum=-23.77341282261380124589267398684242691874`20.
+setupLabel=non-planar triangle family b direct-matrix transport matrixDimensions={18, 18} boundaryDimensions={18, 5} regularizedEndpoints={} interval={0.01`140., 0.05`140.}
+resultDimensions={18, 5} wallTimeSeconds=0.047272 referenceLabel=AMFlow endpoint at y=1/20 maxReferenceError=5.888554021539125e-19
+endpointInfo={} finalChecksum=-101.17566062768297666602245895788255163075`20.

@@ -132,7 +132,7 @@ setupTriangleB[] := Module[
   Options[nPTriangleBAt] = {"Precision" -> precisionA};
   nPTriangleBAt[yvalue_, OptionsPattern[]] := Module[{p},
     p = OptionValue["Precision"];
-    NPTriangleBSubsectorMatrix[yvalue, "Precision" -> p]
+    NPTriangleBMatrix[yvalue, "Precision" -> p]
   ];
   boundaryValues = N[valueOf[leftRules, "Coefficients"], precision];
   referenceValues = N[valueOf[rightRules, "Coefficients"], precision];
@@ -143,7 +143,7 @@ setupTriangleB[] := Module[
   transportInterval = {yStart, yEnd};
   sampleMatrix = atFunction[(yStart + yEnd)/2, "Precision" -> precisionA];
   systemDimensions = Dimensions[sampleMatrix];
-  If[systemDimensions =!= {15, 15} ||
+  If[systemDimensions =!= {18, 18} ||
       !FreeQ[sampleMatrix, Indeterminate | ComplexInfinity],
     Print["BAD_NPTRIANGLEB_SAMPLE_MATRIX dimensions=", systemDimensions];
     Quit[2];
@@ -152,7 +152,6 @@ setupTriangleB[] := Module[
     DistributeDefinitions[
       NPTriangleBPeriodData,
       NPTriangleBMatrix,
-      NPTriangleBSubsectorMatrix,
       nPTriangleBAt
     ],
     Null

@@ -1,7 +1,6 @@
 ClearAll[
   NPTriangleBPeriodData,
-  NPTriangleBMatrix,
-  NPTriangleBSubsectorMatrix
+  NPTriangleBMatrix
 ];
 
 NPTriangleBPeriodData[yIn_, wp_] := Module[
@@ -118,10 +117,4 @@ NPTriangleBMatrix[yIn_, OptionsPattern[]] := Module[
   mat[[17, 17]] = 4/(y (1 + y));
 
   SparseArray[N[mat, wp]]
-];
-
-Options[NPTriangleBSubsectorMatrix] = {"Precision" -> 100};
-NPTriangleBSubsectorMatrix[yIn_, OptionsPattern[]] := Module[{mat},
-  mat = NPTriangleBMatrix[yIn, "Precision" -> OptionValue["Precision"]];
-  mat[[4 ;; 18, 4 ;; 18]]
 ];
