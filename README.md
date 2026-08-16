@@ -18,6 +18,12 @@ kinematic paths.
 No benchmark logs, paper source files, development scripts, or temporary files
 are included in this release archive.
 
+The `experiment` branch also contains `CHESSv2/`: a modular unified
+canonical/non-canonical package with optional C++ MPFR/MPC propagation and a
+separate FORM/FLINT multipoint-expression interface. See
+[`CHESSv2/README.md`](CHESSv2/README.md) for its build, API, tests, supported
+routes, and benchmark boundary.
+
 ## Requirements
 
 - Wolfram Mathematica / WolframScript 13.0 or newer.

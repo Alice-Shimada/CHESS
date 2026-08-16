@@ -1,0 +1,122 @@
+#!/usr/bin/env wolframscript
+
+(* The generic FORM/FLINT adapter can be tested without shipping a 790 MB
+   process-specific SLP.  This fixture writes three exact one-limb NFLOAT01
+   numbers and checks the package decoder.  If the experimental evaluator paths
+   are provided through the environment, it additionally performs one real
+   native FLINT call. *)
+
+ClearAll["Global`*"];
+$HistoryLength = 0;
+
+testRoot = DirectoryName[DirectoryName[ExpandFileName[$InputFileName]]];
+Get[FileNameJoin[{testRoot, "CHESSv2.wl"}]];
+
+failures = {};
+assert[name_String, condition_] := If[
+  TrueQ[condition],
+  Print["PASS: ", name],
+  AppendTo[failures, name];
+  Print["FAIL: ", name]
+];
+
+fixture = FileNameJoin[{
+  $TemporaryDirectory,
+  "chess-flint-protocol-" <> ToString[$ProcessID] <> ".bin"
+}];
+stream = OpenWrite[fixture, BinaryFormat -> True];
+BinaryWrite[stream, ToCharacterCode["NFLOAT01"], "UnsignedInteger8"];
+BinaryWrite[
+  stream,
+  {1, 1, 1, 3},
+  "UnsignedInteger64",
+  ByteOrdering -> -1
+];
+(* value = (-1)^sign mantissa 2^(exponent-64). *)
+BinaryWrite[
+  stream,
+  Flatten[{
+    {2, 0, 7 2^61},       (*  7/2 *)
+    {2, 1, 2^63},         (* -2   *)
+    {2^63, 0, 0}          (* zero sentinel exponent -2^63 *)
+  }],
+  "UnsignedInteger64",
+  ByteOrdering -> -1
+];
+Close[stream];
+decoded = CHESSFLINTReadNFloatBinary[fixture, 60];
+Quiet @ DeleteFile[fixture];
+assert[
+  "flint-nfloat01-exact-decoder",
+  AssociationQ[decoded] &&
+  {decoded["PointCount"], decoded["ValueCount"]} === {1, 3} &&
+  TrueQ @ PossibleZeroQ[
+    Max[Abs[Flatten[decoded["Values"]] - {7/2, -2, 0}]]
+  ]
+];
+
+(* FLINT encodes +Infinity, -Infinity, and NaN in the exponent word directly
+   above WORD_MIN.  They must never be rounded into an apparently finite matrix
+   entry. *)
+writeOneRecord[record_List, suffix_String] := Module[{file, localStream},
+  file = FileNameJoin[{
+    $TemporaryDirectory,
+    "chess-flint-special-" <> ToString[$ProcessID] <> "-" <> suffix <> ".bin"
+  }];
+  localStream = OpenWrite[file, BinaryFormat -> True];
+  BinaryWrite[
+    localStream, ToCharacterCode["NFLOAT01"], "UnsignedInteger8"
+  ];
+  BinaryWrite[
+    localStream, {1, 1, 1, 1}, "UnsignedInteger64", ByteOrdering -> -1
+  ];
+  BinaryWrite[
+    localStream, record, "UnsignedInteger64", ByteOrdering -> -1
+  ];
+  Close[localStream];
+  file
+];
+malformedRecords = {
+  {2^63 + 1, 0, 0},       (* +Infinity *)
+  {2^63 + 2, 1, 0},       (* -Infinity *)
+  {2^63 + 3, 0, 0},       (* NaN *)
+  {2^63 + 4, 0, 2^63},    (* below NFLOAT_MIN_EXP *)
+  {2^61, 0, 2^63},        (* above NFLOAT_MAX_EXP *)
+  {2, 2, 2^63}            (* invalid sign *)
+};
+specialDecoded = Table[
+  specialFixture = writeOneRecord[
+    malformedRecords[[index]], ToString[index]
+  ];
+  value = Quiet @ CHESSFLINTReadNFloatBinary[specialFixture, 60];
+  Quiet @ DeleteFile[specialFixture];
+  value,
+  {index, Length[malformedRecords]}
+];
+assert[
+  "flint-nonfinite-record-fails-closed",
+  specialDecoded === ConstantArray[$Failed, Length[malformedRecords]]
+];
+
+evaluator = Environment["CHESSV2_FLINT_EVALUATOR"];
+slp = Environment["CHESSV2_FLINT_SLP"];
+If[StringQ[evaluator] && StringQ[slp] &&
+   CHESSFLINTAvailableQ[evaluator, slp],
+  native = CHESSFLINTRunSLP[
+    evaluator, slp, {{1, 2, 3, 4, 5, 6, 7}}, 40, 1
+  ];
+  assert[
+    "flint-existing-slp-native-smoke",
+    AssociationQ[native] && native["PointCount"] === 1 &&
+    native["ValueCount"] > 0 && Dimensions[native["Values"]] ===
+      {1, native["ValueCount"]}
+  ],
+  Print["SKIP: flint-existing-slp-native-smoke (set CHESSV2_FLINT_EVALUATOR and CHESSV2_FLINT_SLP)"]
+];
+
+If[failures === {},
+  Print["CHESSV2_NATIVE_EVALUATION_TESTS_PASSED"];
+  Exit[0],
+  Print[InputForm[{"CHESSV2_NATIVE_EVALUATION_FAILURES", failures}]];
+  Exit[1]
+];

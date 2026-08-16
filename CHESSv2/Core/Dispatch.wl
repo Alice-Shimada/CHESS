@@ -23,6 +23,7 @@
 
 ClearAll[
   CHESSCanonicalSegments,
+  CHESSRunNativeCanonicalUnified,
   CHESSRunCanonicalUnified,
   CHESSRunNonCanonicalUnified,
   CHESSRunFakeDeltaUnified,
@@ -56,6 +57,16 @@ SpectralPropagate::b0endpoint =
   "Automatic B0-only fake-delta propagation currently supports regular endpoints only. Use the general non-canonical representation when explicit endpoint data are required.";
 SpectralPropagate::normalize =
   "The polynomial coefficient list could not be normalized to the boundary dimensions.";
+SpectralPropagate::nativebackend =
+  "NumericalBackend must be Mathematica, Native, or Automatic; received `1`.";
+SpectralPropagate::nativeunsupported =
+  "The native propagation backend currently supports one regular canonical interval only. Use NumericalBackend->Mathematica for segmented or endpoint-regularized propagation.";
+SpectralPropagate::nativenoncanonical =
+  "The native propagation backend does not yet implement a genuinely mixed or higher-degree non-canonical operator. This route remains on the Mathematica non-canonical core.";
+SpectralPropagate::nativeresult =
+  "ResultData must be Full or Endpoint; received `1`.";
+SpectralPropagate::nativehandle =
+  "The supplied NativeHandle is incompatible with this dimension, interval, node count, or precision.";
 
 Options[SpectralPropagate] = DeleteDuplicatesBy[
   Join[
@@ -71,7 +82,16 @@ Options[SpectralPropagate] = DeleteDuplicatesBy[
 
       (* Automatic mode fails rather than returning an unconverged sum after
          this order.  The verified AMFlow example required order 56. *)
-      "MaxDeltaOrder" -> 128
+      "MaxDeltaOrder" -> 128,
+
+      (* Native remains opt-in while the experiment is generalized.  Passing a
+         prepared handle amortizes matrix evaluation and LU factorization. *)
+      "NumericalBackend" -> "Mathematica",
+      "NativeHandle" -> Automatic,
+
+      (* Endpoint skips the large coefficient-by-node WSTP payload and is the
+         high-throughput mode for repeated boundary propagation. *)
+      "ResultData" -> "Full"
     }
   ],
   First
@@ -127,14 +147,53 @@ CHESSCanonicalSegments[
   {allNodes, allValues, state, {}, {}, {"CanonicalSegments", segments}}
 ];
 
+(* Native canonical execution is kept in this thin wrapper.  It neither changes
+   the copied canonical core nor leaks WSTP protocol details into public route
+   classification. *)
+CHESSRunNativeCanonicalUnified[
+  evaluator_, systemSpec_, boundary_?MatrixQ, interval_, canonicalRules_List,
+  segments_Integer, regularizedEndpoints_, nativeHandle_, resultData_
+] := Module[{dimension, handle, tensor, run},
+  If[
+    segments =!= 1 ||
+    !MemberQ[{None, False, {}}, regularizedEndpoints],
+    Message[SpectralPropagate::nativeunsupported];
+    Return[$Failed]
+  ];
+  If[!MemberQ[{"Full", "Endpoint"}, resultData],
+    Message[SpectralPropagate::nativeresult, resultData];
+    Return[$Failed]
+  ];
+  dimension = Dimensions[boundary][[1]];
+  handle = If[
+    nativeHandle === Automatic,
+    CHESSNativePrepare[systemSpec, dimension, interval, canonicalRules],
+    nativeHandle
+  ];
+  If[
+    handle === $Failed ||
+    !CHESSNativeHandleCompatibleQ[
+      handle, systemSpec, dimension, interval, canonicalRules
+    ],
+    Message[SpectralPropagate::nativehandle];
+    Return[$Failed]
+  ];
+  tensor = {Transpose[boundary]};
+  run = CHESSNativeRun[handle, tensor, resultData === "Full"];
+  If[run === $Failed, Return[$Failed]];
+  CHESSNativeCanonicalResult[handle, run, resultData]
+];
+
 (* Execute a canonical route after filtering the unified option list.  Both
    explicit B1 coefficients and legacy bare functions have already been wrapped
    by the common adapter, which preserves their call conventions while checking
    the boundary-derived operator dimensions. *)
 CHESSRunCanonicalUnified[
-  evaluator_, boundary_?MatrixQ, interval_, rules_List, segments_Integer,
-  regularizedEndpoints_, endpointData_
-] := Module[{canonicalRules},
+  evaluator_, systemSpec_, boundary_?MatrixQ, interval_, rules_List,
+  segments_Integer,
+  regularizedEndpoints_, endpointData_, numericalBackend_, nativeHandle_,
+  resultData_
+] := Module[{canonicalRules, resolvedBackend},
   If[endpointData =!= {},
     Message[SpectralPropagate::endpointdata];
     Return[$Failed]
@@ -144,12 +203,27 @@ CHESSRunCanonicalUnified[
     Return[$Failed]
   ];
   canonicalRules = CHESSFilterOptionRules[rules, $CHESSCanonicalOptions];
-  If[segments === 1,
-    CHESSCheckedCanonicalPropagate[
-      evaluator, boundary, interval, canonicalRules
+  resolvedBackend = Replace[
+    numericalBackend,
+    Automatic :> If[AssociationQ[nativeHandle], "Native", "Mathematica"]
+  ];
+  If[!MemberQ[{"Mathematica", "Native"}, resolvedBackend],
+    Message[SpectralPropagate::nativebackend, numericalBackend];
+    Return[$Failed]
+  ];
+  If[
+    resolvedBackend === "Native",
+    CHESSRunNativeCanonicalUnified[
+      evaluator, systemSpec, boundary, interval, canonicalRules, segments,
+      regularizedEndpoints, nativeHandle, resultData
     ],
-    CHESSCanonicalSegments[
-      evaluator, boundary, interval, canonicalRules, segments
+    If[segments === 1,
+      CHESSCheckedCanonicalPropagate[
+        evaluator, boundary, interval, canonicalRules
+      ],
+      CHESSCanonicalSegments[
+        evaluator, boundary, interval, canonicalRules, segments
+      ]
     ]
   ]
 ];
@@ -160,8 +234,20 @@ CHESSRunCanonicalUnified[
    before values enter the historical solver. *)
 CHESSRunNonCanonicalUnified[
   specs_List, boundary_?MatrixQ, interval_, rules_List, segments_Integer,
-  regularizedEndpoints_, endpointData_
-] := Module[{normalized, nonCanonicalRules},
+  regularizedEndpoints_, endpointData_, numericalBackend_, nativeHandle_
+] := Module[{normalized, nonCanonicalRules, resolvedBackend},
+  resolvedBackend = Replace[
+    numericalBackend,
+    Automatic :> If[AssociationQ[nativeHandle], "Native", "Mathematica"]
+  ];
+  If[!MemberQ[{"Mathematica", "Native"}, resolvedBackend],
+    Message[SpectralPropagate::nativebackend, numericalBackend];
+    Return[$Failed]
+  ];
+  If[resolvedBackend === "Native",
+    Message[SpectralPropagate::nativenoncanonical];
+    Return[$Failed]
+  ];
   If[endpointData =!= {} &&
       MemberQ[{None, False, {}}, regularizedEndpoints],
     Message[SpectralPropagate::orphanendpointdata];
@@ -194,8 +280,9 @@ CHESSRunNonCanonicalUnified[
 CHESSRunFakeDeltaUnified[
   b0_, boundary_?MatrixQ, interval_, rules_List, segments_Integer,
   regularizedEndpoints_, endpointData_, deltaOrder_, deltaTolerance_,
-  maxDeltaOrder_
-] := Module[{canonicalRules},
+  maxDeltaOrder_, numericalBackend_, nativeHandle_, resultData_
+] := Module[
+  {canonicalRules, resolvedBackend, precision, resolvedTolerance},
   (* EndpointData is meaningful only together with the non-canonical endpoint
      construction.  Silently dropping it here would be especially dangerous:
      the numerical answer could look plausible while ignoring user-supplied
@@ -207,15 +294,51 @@ CHESSRunFakeDeltaUnified[
     Return[$Failed]
   ];
   canonicalRules = CHESSFilterOptionRules[rules, $CHESSCanonicalOptions];
-  CHESSFakeDeltaPropagate[
-    b0,
-    boundary,
-    interval,
-    canonicalRules,
-    "DeltaOrder" -> deltaOrder,
-    "DeltaTolerance" -> deltaTolerance,
-    "MaxDeltaOrder" -> maxDeltaOrder,
-    "Segments" -> segments
+  resolvedBackend = Replace[
+    numericalBackend,
+    Automatic :> If[AssociationQ[nativeHandle], "Native", "Mathematica"]
+  ];
+  If[!MemberQ[{"Mathematica", "Native"}, resolvedBackend],
+    Message[SpectralPropagate::nativebackend, numericalBackend];
+    Return[$Failed]
+  ];
+  If[
+    resolvedBackend === "Native",
+    If[!(deltaOrder === Automatic || IntegerQ[deltaOrder] && deltaOrder >= 0),
+      Message[CHESSFakeDeltaPropagate::order, deltaOrder];
+      Return[$Failed]
+    ];
+    If[
+      !IntegerQ[maxDeltaOrder] || maxDeltaOrder < 0 ||
+      deltaOrder === Automatic && maxDeltaOrder < 4,
+      Message[CHESSFakeDeltaPropagate::maxorder, maxDeltaOrder];
+      Return[$Failed]
+    ];
+    precision = CHESSNativeOptionValue[
+      canonicalRules, "Precision", 160
+    ];
+    resolvedTolerance = Replace[
+      deltaTolerance,
+      Automatic :> 10^-Max[10, Floor[7 N[precision]/10]]
+    ];
+    If[!NumberQ[resolvedTolerance] || !TrueQ[resolvedTolerance > 0],
+      Message[CHESSFakeDeltaPropagate::tolerance, deltaTolerance];
+      Return[$Failed]
+    ];
+    CHESSNativeFakeDeltaPropagate[
+      b0, boundary, interval, canonicalRules, deltaOrder,
+      resolvedTolerance, maxDeltaOrder, segments, nativeHandle, resultData
+    ],
+    CHESSFakeDeltaPropagate[
+      b0,
+      boundary,
+      interval,
+      canonicalRules,
+      "DeltaOrder" -> deltaOrder,
+      "DeltaTolerance" -> deltaTolerance,
+      "MaxDeltaOrder" -> maxDeltaOrder,
+      "Segments" -> segments
+    ]
   ]
 ];
 
@@ -227,7 +350,10 @@ SpectralPropagate[
   evaluator_, boundary_?MatrixQ, interval : {_, _},
   opts : OptionsPattern[]
 ] := Module[
-  {rules, segments, regularizedEndpoints, endpointData, canonicalEvaluator},
+  {
+    rules, segments, regularizedEndpoints, endpointData, canonicalEvaluator,
+    numericalBackend, nativeHandle, resultData
+  },
   If[Dimensions[boundary][[1]] <= 0 || Dimensions[boundary][[2]] <= 0 ||
       !MatrixQ[boundary, NumericQ],
     Message[SpectralPropagate::boundary, Dimensions[boundary]];
@@ -241,6 +367,9 @@ SpectralPropagate[
   ];
   regularizedEndpoints = OptionValue["RegularizedEndpoints"];
   endpointData = OptionValue["EndpointData"];
+  numericalBackend = OptionValue["NumericalBackend"];
+  nativeHandle = OptionValue["NativeHandle"];
+  resultData = OptionValue["ResultData"];
   (* SparseArray has head SparseArray rather than List, so a sparse constant
      reaches this generic definition.  Wrap every numerical matrix explicitly;
      otherwise the canonical core would try to call it as a function and can
@@ -255,8 +384,9 @@ SpectralPropagate[
     ]
   ];
   CHESSRunCanonicalUnified[
-    canonicalEvaluator, boundary, interval, rules, segments,
-    regularizedEndpoints, endpointData
+    canonicalEvaluator, evaluator, boundary, interval, rules, segments,
+    regularizedEndpoints, endpointData, numericalBackend, nativeHandle,
+    resultData
   ]
 ];
 
@@ -268,7 +398,8 @@ SpectralPropagate[
   opts : OptionsPattern[]
 ] := Module[
   {rules, segments, regularizedEndpoints, endpointData, positions,
-   deltaOrder, deltaTolerance, maxDeltaOrder, zeroMatrix},
+   deltaOrder, deltaTolerance, maxDeltaOrder, zeroMatrix,
+   numericalBackend, nativeHandle, resultData},
 
   (* A dense constant n x n matrix is legacy canonical input, not a list of
      epsilon coefficients. *)
@@ -303,6 +434,9 @@ SpectralPropagate[
   deltaOrder = OptionValue["DeltaOrder"];
   deltaTolerance = OptionValue["DeltaTolerance"];
   maxDeltaOrder = OptionValue["MaxDeltaOrder"];
+  numericalBackend = OptionValue["NumericalBackend"];
+  nativeHandle = OptionValue["NativeHandle"];
+  resultData = OptionValue["ResultData"];
   positions = CHESSNonzeroCoefficientPositions[specs];
 
   Which[
@@ -312,7 +446,7 @@ SpectralPropagate[
       CHESSRunFakeDeltaUnified[
         zeroMatrix, boundary, interval, rules, segments,
         regularizedEndpoints, endpointData, deltaOrder, deltaTolerance,
-        maxDeltaOrder
+        maxDeltaOrder, numericalBackend, nativeHandle, resultData
       ],
 
     (* B0 is the only nonzero coefficient. *)
@@ -320,7 +454,7 @@ SpectralPropagate[
       CHESSRunFakeDeltaUnified[
         specs[[1]], boundary, interval, rules, segments,
         regularizedEndpoints, endpointData, deltaOrder, deltaTolerance,
-        maxDeltaOrder
+        maxDeltaOrder, numericalBackend, nativeHandle, resultData
       ],
 
     (* B1 is the only nonzero coefficient; use the original canonical method. *)
@@ -329,12 +463,16 @@ SpectralPropagate[
         CHESSCanonicalNodeEvaluator[
           specs[[2]], ConstantArray[Dimensions[boundary][[1]], 2]
         ],
+        specs[[2]],
         boundary,
         interval,
         rules,
         segments,
         regularizedEndpoints,
-        endpointData
+        endpointData,
+        numericalBackend,
+        nativeHandle,
+        resultData
       ],
 
     (* Every genuinely mixed or higher-degree case stays on the unchanged
@@ -342,7 +480,7 @@ SpectralPropagate[
     True,
       CHESSRunNonCanonicalUnified[
         specs, boundary, interval, rules, segments,
-        regularizedEndpoints, endpointData
+        regularizedEndpoints, endpointData, numericalBackend, nativeHandle
       ]
   ]
 ];

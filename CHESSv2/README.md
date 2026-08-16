@@ -1,18 +1,18 @@
 # CHESSv2
 
-CHESSv2 是一个纯 Mathematica 的统一谱传播程序包。它把原 canonical
-CHESS 与 `CHESS_non_canonical` 的实现放在同一个加载入口下，并由唯一的
-公开函数 `SpectralPropagate` 自动选择算法。
+CHESSv2 是统一的谱传播程序包。它把原 canonical CHESS 与
+`CHESS_non_canonical` 的实现放在同一个加载入口下，并由唯一的公开函数
+`SpectralPropagate` 自动选择算法。默认值仍是纯 Mathematica；规则路径上的
+canonical 与只含 `B0` 的方程可以显式切换到可选 C++ 高精度后端。
 
-这一版刻意保持范围很小：不包含 C++、FORM、FLINT、Fermat 或 Fermatica
-后端，也没有后端注册系统。canonical 与 non-canonical 的数值内核被尽量
-原样复用；新增代码只负责输入适配、自动分派以及只含 `B0` 时的伪 delta
-传播。
+改动保持模块化：历史 canonical/non-canonical 数值内核继续原样复用，C++
+传播、FORM/FLINT 多点表达式求值以及公开分派是互不依赖的模块。没有编译
+native 后端时，默认 Mathematica 行为和返回结构不变。
 
 ## 加载
 
 ```wl
-Get["/home/liuyuanche/MMA_Package/CHESSv2/CHESSv2.wl"];
+Get["/path/to/CHESS/CHESSv2/CHESSv2.wl"];
 ```
 
 加载后直接使用 `SpectralPropagate`，不需要写 `CHESS`` 或 `CHESSv2``
@@ -65,6 +65,69 @@ Bp[t_] := ...
 
 返回值必须是数值方阵，而且尺寸必须与 `boundary` 的行数一致。适配层只负责
 统一这三种已有约定，不进行符号化简，也不会通过低精度试探改变路由。
+
+若大矩阵来自 FORM 生成的巨大有理表达式，可用
+`CHESSNodeEvaluator[scalar,batch]` 提供一次计算所有节点的 batch evaluator。
+`Core/NativeEvaluation.wl` 提供通用的
+`CHESSFLINTRunSLP[executable,slp,pointRows,precision,threads]`：它复用实验性
+non-canonical 后端的 `NFLOAT01` 协议，把 FORM 的 straight-line program 交给
+FLINT `nfloat` 多线程求值。具体变量、SLP 和稀疏矩阵装配仍属于各物理问题，
+不会硬编码进 CHESS。完整接口示例见 `Native/Evaluation/README.md`。
+默认额外 20 位只是可调的经验 guard digits，不是严格误差界；近极点、严重
+消去或巨大中间量必须提高 `"GuardDigits"`/`"WorkingBits"`，并用更高精度
+重算检查稳定性。任何 FLINT infinity 或 NaN 记录都会失败关闭。
+
+## 可选 C++ 数值传播
+
+编译：
+
+```bash
+make -C CHESSv2/Native/Propagation
+```
+
+默认 Makefile 使用 Mathematica 14.3 的 WSTP、Boost 1.83、MPFR/MPC/GMP 和
+OpenMP；安装位置不同时可覆盖 `BOOST_INCLUDE` 与 `WSTP_DIR`。传播线性代数
+使用 MPFR/MPC，而不是 FLINT；FLINT 专用于上一节那类巨大 FORM 表达式的
+多点评值。两者如此拆开，是为了让每种库只负责其有优势的热区。
+
+用户仍只调用统一入口：
+
+```wl
+rules = {
+  "Nodes" -> 32,
+  "Precision" -> 70,
+  "WorkingPrecisionA" -> 90,
+  "ParallelEvaluation" -> False
+};
+
+(* 准备一次，重复传播时复用矩阵采样与 LU 分解。 *)
+handle = CHESSNativePrepare[b0, Length[boundary], {0, 1}, rules];
+
+result = SpectralPropagate[
+  {b0}, boundary, {0, 1},
+  Sequence @@ rules,
+  "NumericalBackend" -> "Native",
+  "NativeHandle" -> handle,
+  "ResultData" -> "Endpoint"
+];
+```
+
+句柄绑定到准备时的 evaluator 表达式、区间、维数、节点数和精度，并递归
+记录 evaluator 依赖的 Wolfram 符号定义；普通函数、辅助函数或选项定义变化
+都会使旧句柄自动失效。只有不体现在 Wolfram 定义中的外部可变状态发生变化
+时，用户才需要显式重新运行 `CHESSNativePrepare`。
+
+native 选项如下：
+
+| 选项 | 默认值 | 作用 |
+|---|---|---|
+| `"NumericalBackend"` | `"Mathematica"` | `"Native"` 显式启用；默认不改变历史行为 |
+| `"NativeHandle"` | `Automatic` | 复用 `CHESSNativePrepare` 的缓存；`Automatic` 每次自行准备 |
+| `"ResultData"` | `"Full"` | `"Endpoint"` 不缓存/回传节点值，适合重复边界传播 |
+
+当前 C++ 模块支持规则 canonical 与规则 `B0` 伪 delta 路由。多段 `B0` 会逐段
+准备；奇异端点和真正混合的 `{B0,B1,...}` 仍由已验证的 Mathematica 内核
+处理。请求 native 执行尚未支持的混合路线会明确失败，不会悄悄换算法。
 
 ## 三类调用示例
 
@@ -191,9 +254,16 @@ CHESSv2.wl                 唯一加载器
 Core/Canonical.wl          原 canonical 数值内核（逐字复用）
 Core/NonCanonical.wl       原 non-canonical 数值内核（加载路径及失败传播修补）
 Core/MatrixAdapters.wl     三种矩阵调用约定和常数矩阵适配
+Core/NativeEvaluation.wl   FORM/FLINT nfloat 多点评值协议
+Core/NativeBackend.wl      C++ 传播接口、缓存句柄和结果装配
 Core/FakeDelta.wl          B0 伪 delta 传播及自动阶数估计
 Core/Dispatch.wl           统一 SpectralPropagate 与结构化分派
+Native/Propagation/        MPFR/MPC/OpenMP 传播源代码与 Makefile
+Native/Evaluation/         FLINT evaluator 接口说明
 Tests/run_all.wls          fresh-kernel 回归测试
+Tests/test_native_backend.wls  编译后端专项测试
+Tests/test_native_evaluation.wls  FLINT 二进制协议及可选真实 SLP 测试
+Benchmarks/pbb64_native_vs_mathematica.wls  316 维、64 位传播基准
 ```
 
 新增模块中保留了较密集的设计注释，特别标出数学约定、索引关系、失败边界
@@ -203,7 +273,7 @@ Tests/run_all.wls          fresh-kernel 回归测试
 ## 测试
 
 ```bash
-wolframscript -file /home/liuyuanche/MMA_Package/CHESSv2/Tests/run_all.wls
+wolframscript -file CHESSv2/Tests/run_all.wls
 ```
 
 测试覆盖裸 `B1`、显式 `B1`、稀疏常数 `B1`、`B0` 自动/固定阶、非对易
@@ -211,3 +281,18 @@ wolframscript -file /home/liuyuanche/MMA_Package/CHESSv2/Tests/run_all.wls
 non-canonical 路由、后段失败传播、算符尺寸检查、`RuleDelayed` 分段选项、
 端点失败关闭行为以及原始源码哈希未变。
 成功时最后打印 `CHESSV2_ALL_TESTS_PASSED`。
+
+编译 native 后端后再运行：
+
+```bash
+wolframscript -file CHESSv2/Tests/test_native_backend.wls
+wolframscript -file CHESSv2/Tests/test_native_evaluation.wls
+```
+
+316 维 PBB 基准严格把数据加载和 native 准备排除在传播计时之外，同时单独
+报告准备成本：
+
+```bash
+OMP_NUM_THREADS=8 \
+  wolframscript -file CHESSv2/Benchmarks/pbb64_native_vs_mathematica.wls
+```

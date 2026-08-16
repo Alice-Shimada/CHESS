@@ -1,7 +1,7 @@
 (* ::Package:: *)
 
 (*
-  CHESSv2 -- unified pure-Mathematica spectral propagation package.
+  CHESSv2 -- unified spectral propagation package with optional native modules.
 
   This file is intentionally only a loader.  The numerical implementations are
   separated by responsibility so that a reader can inspect the canonical,
@@ -9,6 +9,8 @@
 
     Core/Canonical.wl     original canonical CHESS implementation;
     Core/NonCanonical.wl  original polynomial-epsilon extension;
+    Core/NativeEvaluation.wl  optional FORM/FLINT batch evaluation protocol;
+    Core/NativeBackend.wl optional C++ regular-point propagation;
     Core/FakeDelta.wl     B0-only auxiliary-delta propagation and order choice;
     Core/Dispatch.wl      the single public SpectralPropagate entry point.
 
@@ -31,6 +33,8 @@ Module[{packageDirectory, moduleFiles, moduleFile, loaded},
     {"Core", "Canonical.wl"},
     {"Core", "NonCanonical.wl"},
     {"Core", "MatrixAdapters.wl"},
+    {"Core", "NativeEvaluation.wl"},
+    {"Core", "NativeBackend.wl"},
     {"Core", "FakeDelta.wl"},
     {"Core", "Dispatch.wl"}
   };
@@ -46,4 +50,4 @@ Module[{packageDirectory, moduleFiles, moduleFile, loaded},
   ];
 ];
 
-$CHESSv2Version = "1.0.0";
+$CHESSv2Version = "2.0.0-experiment";

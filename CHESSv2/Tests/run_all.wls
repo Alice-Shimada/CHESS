@@ -36,7 +36,7 @@ metadataValue[metadata_List, key_String] := Module[{position},
 
 assert[
   "single-loader-and-unified-entry",
-  $CHESSv2Version === "1.0.0" &&
+  $CHESSv2Version === "2.0.0-experiment" &&
   Context[SpectralPropagate] === "Global`" &&
   DownValues[SpectralPropagate] =!= {} &&
   MemberQ[First /@ Options[SpectralPropagate], "DeltaOrder"] &&
