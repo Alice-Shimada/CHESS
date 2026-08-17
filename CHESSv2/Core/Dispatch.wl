@@ -60,9 +60,7 @@ SpectralPropagate::normalize =
 SpectralPropagate::nativebackend =
   "NumericalBackend must be Mathematica, Native, or Automatic; received `1`.";
 SpectralPropagate::nativeunsupported =
-  "The native propagation backend currently supports one regular canonical interval only. Use NumericalBackend->Mathematica for segmented or endpoint-regularized propagation.";
-SpectralPropagate::nativenoncanonical =
-  "The native propagation backend does not yet implement a genuinely mixed or higher-degree non-canonical operator. This route remains on the Mathematica non-canonical core.";
+  "The native propagation backend currently supports regular intervals only. Use NumericalBackend->Mathematica for endpoint-regularized propagation.";
 SpectralPropagate::nativeresult =
   "ResultData must be Full or Endpoint; received `1`.";
 SpectralPropagate::nativehandle =
@@ -244,10 +242,6 @@ CHESSRunNonCanonicalUnified[
     Message[SpectralPropagate::nativebackend, numericalBackend];
     Return[$Failed]
   ];
-  If[resolvedBackend === "Native",
-    Message[SpectralPropagate::nativenoncanonical];
-    Return[$Failed]
-  ];
   If[endpointData =!= {} &&
       MemberQ[{None, False, {}}, regularizedEndpoints],
     Message[SpectralPropagate::orphanendpointdata];
@@ -272,6 +266,19 @@ CHESSRunNonCanonicalUnified[
   ];
   nonCanonicalRules = CHESSFilterOptionRules[
     rules, $CHESSNonCanonicalOptions
+  ];
+  If[resolvedBackend === "Native",
+    If[
+      segments =!= 1 ||
+      !MemberQ[{None, False, {}}, regularizedEndpoints] ||
+      endpointData =!= {} || !CHESSNodeEvaluatorQ[specs],
+      Message[SpectralPropagate::nativeunsupported];
+      Return[$Failed]
+    ];
+    Return @ CHESSNativePolynomialPropagate[
+      specs, boundary, interval, nonCanonicalRules, nativeHandle,
+      CHESSNativeOptionValue[rules, "ResultData", "Full"]
+    ]
   ];
   SpectralPropagatePolynomialEpsilon[
     normalized,

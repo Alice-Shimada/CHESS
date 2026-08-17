@@ -8,14 +8,15 @@
 
     - multiprecision LU factorization of the scalar Lobatto block;
     - sparse node-matrix/vector products;
-    - repeated sequential epsilon or fake-delta layer solves.
+    - repeated sequential epsilon or fake-delta layer solves;
+    - direct active-support LU for regular mixed polynomial systems.
 
   Mathematica retains the public API, route classification, matrix-evaluator
   semantics, automatic fake-delta stopping rule, and result assembly.  This is
-  deliberately a capability module rather than a replacement package: mixed
-  non-canonical B0 systems and singular endpoint regularization remain with the
-  verified Mathematica cores until a native implementation has an independent
-  correctness contract.
+  deliberately a capability module rather than a replacement package.  The
+  direct mixed-polynomial path mirrors the active-support Mathematica algorithm
+  and remains restricted to regular endpoints; singular endpoint
+  regularization stays with the verified Mathematica core.
 
   The executable is not committed.  Build it with
 
@@ -32,9 +33,13 @@ ClearAll[
   CHESSNativeUninstall,
   CHESSNativeClear,
   CHESSNativePrepare,
+  CHESSNativePolynomialPrepare,
   CHESSNativeRun,
+  CHESSNativePolynomialRun,
   CHESSNativeFetch,
   CHESSNativeCanonicalResult,
+  CHESSNativePolynomialResult,
+  CHESSNativePolynomialPropagate,
   CHESSNativeFakeDeltaRunAtOrder,
   CHESSNativeFakeDeltaAssembleResult,
   CHESSNativeFakeDeltaPropagateSingle,
@@ -45,6 +50,8 @@ ClearAll[
   CHESSNativeParseComplexValues,
   CHESSNativeHandleValidQ,
   CHESSNativeHandleCompatibleQ,
+  CHESSNativePolynomialHandleCompatibleQ,
+  CHESSNativeWriteSparseMatrix,
   CHESSNativeDefinitionSnapshot,
   CHESSNativeReferencedSymbols,
   CHESSNativeDefinitionClosure,
@@ -58,6 +65,10 @@ CHESSNativePrepare::matrix =
   "Native preparation could not evaluate numerical `1` by `1` operators on all ordinary Lobatto nodes.";
 CHESSNativePrepare::option =
   "Invalid native preparation option values: Nodes=`1`, Precision=`2`, WorkingPrecisionA=`3`.";
+CHESSNativePolynomialPrepare::matrix =
+  "Native polynomial preparation could not obtain degree `1` numerical `2` by `2` coefficient matrices at every ordinary Lobatto node.";
+CHESSNativePolynomialPrepare::active =
+  "Direct native polynomial transport requires a non-empty B0 active support.";
 CHESSNativeRun::handle =
   "The native handle is no longer active. Preparing another system invalidates earlier handles because one backend process caches one collocation system.";
 CHESSNativeRun::boundary =
@@ -121,6 +132,25 @@ CHESSNativeWriteComplex[stream_, value_, precision_] := WriteString[
   stream,
   CHESSNativeNumberString[Re[value], precision], " ",
   CHESSNativeNumberString[Im[value], precision], "\n"
+];
+
+CHESSNativeWriteSparseMatrix[stream_, matrix_, precision_] := Module[
+  {rules, entries},
+  rules = ArrayRules[SparseArray[matrix]];
+  entries = Cases[
+    rules,
+    HoldPattern[{row_Integer, column_Integer} -> value_] :>
+      {row - 1, column - 1, value}
+  ];
+  WriteString[stream, Length[entries], "\n"];
+  Scan[
+    Function[entry,
+      WriteString[stream, entry[[1]], " ", entry[[2]], " "];
+      CHESSNativeWriteComplex[stream, entry[[3]], precision]
+    ],
+    entries
+  ];
+  Length[entries]
 ];
 
 CHESSNativeParseNumber[token_, precision_] := SetPrecision[
@@ -236,6 +266,15 @@ CHESSNativeHandleCompatibleQ[
     {handleInterval, interval}
   ]
 ];
+
+CHESSNativePolynomialHandleCompatibleQ[
+  handle_, matrixSpec_, dimension_Integer, interval : {_, _}, rules_List,
+  degree_Integer
+] := CHESSNativeHandleCompatibleQ[
+    handle, matrixSpec, dimension, interval, rules
+  ] &&
+  Lookup[handle, "Mode", Missing["Mode"]] === "Polynomial" &&
+  Lookup[handle, "Degree", Missing["Degree"]] === degree;
 
 (* Prepare one regular-point canonical collocation system.  The common matrix
    adapter is used here as well, so native and Mathematica paths accept exactly
@@ -367,6 +406,164 @@ CHESSNativePrepare[
   |>
 ];
 
+(* Prepare the direct active-support operator for a regular mixed polynomial
+   system.  Matrix evaluation remains on the Mathematica/FORM/FLINT side.  The
+   8 x 97 F3 active block, for example, is assembled once and factorized by the
+   C++ backend with FLINT nfloat; positive epsilon powers are stored only as
+   sparse node operators for sequential RHS construction. *)
+CHESSNativePolynomialPrepare[
+  matrixSpec_CHESSNodeEvaluator, boundary_?MatrixQ, interval : {_, _},
+  rules_List
+] := Module[
+  {
+    nodesOption, precision, precisionA, parallelSpec, kernelSpec, degree,
+    dimension, threads, collocation, nodes, scalarMatrix, ordinaryValues,
+    matricesByNode, zeroMatrices, b0Nodes, active, flintBits, setupFile, stream,
+    loadSeconds, loadResult, tag, cleanup, node, power
+  },
+  nodesOption = CHESSNativeOptionValue[rules, "Nodes", 48];
+  precision = CHESSNativeOptionValue[rules, "Precision", 160];
+  precisionA = CHESSNativeOptionValue[rules, "WorkingPrecisionA", 220];
+  parallelSpec = CHESSNativeOptionValue[
+    rules, "ParallelEvaluation", Automatic
+  ];
+  kernelSpec = CHESSNativeOptionValue[rules, "ParallelKernels", 1];
+  degree = CHESSNativeOptionValue[rules, "EpsilonDegree", Automatic];
+  dimension = First[Dimensions[boundary]];
+  If[
+    !IntegerQ[nodesOption] || nodesOption <= 0 ||
+    !IntegerQ[precision] || precision <= 0 ||
+    !IntegerQ[precisionA] || precisionA < precision ||
+    !IntegerQ[degree] || degree <= 0,
+    Message[
+      CHESSNativePrepare::option, nodesOption, precision, precisionA
+    ];
+    Return[$Failed]
+  ];
+  If[!MatchQ[CHESSNativeInstall[], _LinkObject], Return[$Failed]];
+
+  collocation = ChebyshevLobattoData[nodesOption, interval, precision];
+  nodes = N[collocation[[1]], precision];
+  scalarMatrix = N[
+    Normal @ BaseScalarCollocationMatrix[collocation[[2]]], precision
+  ];
+  threads = CHESSBatchThreadCount[parallelSpec, nodesOption, kernelSpec];
+  ordinaryValues = Quiet @ Check[
+    CHESSNodeEvaluatorBatch[matrixSpec][Rest[nodes], precisionA, threads],
+    $Failed
+  ];
+  If[
+    ordinaryValues === $Failed || !ListQ[ordinaryValues] ||
+    Length[ordinaryValues] =!= nodesOption ||
+    !And @@ Map[
+      Function[nodeMatrices,
+        ListQ[nodeMatrices] && Length[nodeMatrices] >= degree + 1 &&
+        And @@ (
+          MatrixQ[#, NumericQ] && Dimensions[#] === {dimension, dimension} & /@
+            Take[nodeMatrices, degree + 1]
+        )
+      ],
+      ordinaryValues
+    ],
+    Message[CHESSNativePolynomialPrepare::matrix, degree, dimension];
+    Return[$Failed]
+  ];
+  ordinaryValues = Map[
+    Function[nodeMatrices,
+      SparseArray[N[#, precisionA]] & /@ Take[nodeMatrices, degree + 1]
+    ],
+    ordinaryValues
+  ];
+  zeroMatrices = ConstantArray[
+    SparseArray[{}, {dimension, dimension}], degree + 1
+  ];
+  matricesByNode = Join[{zeroMatrices}, ordinaryValues];
+
+  b0Nodes = matricesByNode[[All, 1]];
+  active = CHESSNonCanonicalActiveSupport[b0Nodes];
+  If[active === {},
+    Message[CHESSNativePolynomialPrepare::active];
+    Return[$Failed]
+  ];
+  flintBits = Ceiling[(precisionA + 20) Log[2, 10]];
+
+  tag = IntegerString[
+    Hash[{AbsoluteTime[], $ProcessID, RandomInteger[2^31 - 1]}, "CRC32"]
+  ];
+  setupFile = FileNameJoin[{
+    $TemporaryDirectory,
+    "chess-native-polynomial-" <> ToString[$ProcessID] <> "-" <> tag <>
+      ".dat"
+  }];
+  stream = None;
+  cleanup[] := (
+    If[Head[stream] === OutputStream,
+      Quiet @ Check[Close[stream], Null];
+      stream = None
+    ];
+    If[StringQ[setupFile] && FileExistsQ[setupFile],
+      Quiet @ Check[DeleteFile[setupFile], Null]
+    ]
+  );
+  CheckAbort[
+    stream = Quiet @ Check[
+      OpenWrite[setupFile, PageWidth -> Infinity], $Failed
+    ];
+    If[Head[stream] =!= OutputStream,
+      cleanup[];
+      Return[$Failed]
+    ];
+    WriteString[
+      stream, "CHESSCPP2 ", precision, " ", dimension, " ",
+      Length[nodes], "\n"
+    ];
+    Scan[
+      CHESSNativeWriteComplex[stream, #, precision] &,
+      Flatten[scalarMatrix]
+    ];
+    WriteString[
+      stream, degree, " ", Length[active], " ", flintBits, "\n",
+      StringRiffle[ToString /@ (active - 1), " "], "\n"
+    ];
+    Do[
+      CHESSNativeWriteSparseMatrix[
+        stream, matricesByNode[[node, 1]], precisionA + 20
+      ],
+      {node, 2, Length[nodes]}
+    ];
+    Do[
+      CHESSNativeWriteSparseMatrix[
+        stream, matricesByNode[[node, power + 1]], precisionA + 20
+      ],
+      {power, 1, degree}, {node, 2, Length[nodes]}
+    ];
+    Close[stream];
+    stream = None;
+    {loadSeconds, loadResult} = AbsoluteTiming[
+      CHESSNativeBackend`Link`Private`ChessNativeLoad[setupFile]
+    ],
+    cleanup[];
+    Abort[]
+  ];
+  cleanup[];
+  If[loadResult =!= Null, Return[$Failed]];
+  $CHESSNativeGeneration++;
+  <|
+    "Generation" -> $CHESSNativeGeneration,
+    "Mode" -> "Polynomial",
+    "Degree" -> degree,
+    "ActiveCount" -> Length[active],
+    "Dimension" -> dimension,
+    "Nodes" -> nodes,
+    "NodesOption" -> nodesOption,
+    "Precision" -> precision,
+    "WorkingPrecisionA" -> precisionA,
+    "EvaluatorToken" -> CHESSNativeEvaluatorToken[matrixSpec],
+    "Interval" -> interval,
+    "LoadSeconds" -> loadSeconds
+  |>
+];
+
 (* boundaryTensor has shape {physical columns,layers,dimension}.  The native
    protocol stores endpoint coefficients and all node states from this call;
    Fetch can subsequently return either coefficient-resolved or delta-summed
@@ -437,6 +634,143 @@ CHESSNativeRun[
     "Layers" -> layers,
     "Columns" -> columns
   |>
+];
+
+CHESSNativePolynomialRun[
+  handle_Association, boundaryTensor_List, cacheStates_: True
+] := Module[
+  {
+    dimension, precision, dimensions, columns, layers, boundaryText, raw,
+    tokens, header, valueTokens, values, endpointLayers, callSeconds,
+    activeCount
+  },
+  If[
+    !CHESSNativeHandleValidQ[handle] ||
+    Lookup[handle, "Mode", Missing["Mode"]] =!= "Polynomial",
+    Message[CHESSNativeRun::handle];
+    Return[$Failed]
+  ];
+  If[!BooleanQ[cacheStates],
+    Message[CHESSNativeRun::protocol];
+    Return[$Failed]
+  ];
+  dimension = Lookup[handle, "Dimension"];
+  precision = Lookup[handle, "Precision"];
+  dimensions = Dimensions[boundaryTensor];
+  If[Length[dimensions] =!= 3 || Last[dimensions] =!= dimension,
+    Message[CHESSNativeRun::boundary, dimensions, dimension];
+    Return[$Failed]
+  ];
+  {columns, layers} = Take[dimensions, 2];
+  callSeconds = AbsoluteTiming[
+    boundaryText = StringRiffle[
+      Join[
+        {ToString[dimension], ToString[layers], ToString[columns]},
+        Flatten[
+          ({
+              CHESSNativeNumberString[Re[#], precision],
+              CHESSNativeNumberString[Im[#], precision]
+            } &) /@ Flatten[boundaryTensor]
+        ]
+      ],
+      " "
+    ];
+    raw = CHESSNativeBackend`Link`Private`ChessNativePolynomialRun[
+      boundaryText, layers, columns, If[TrueQ[cacheStates], 1, 0]
+    ];
+  ][[1]];
+  If[!StringQ[raw],
+    Message[CHESSNativeRun::protocol];
+    Return[$Failed]
+  ];
+  tokens = StringSplit[raw];
+  If[Length[tokens] < 6 || First[tokens] =!= "CHESSPOLY1",
+    Message[CHESSNativeRun::protocol];
+    Return[$Failed]
+  ];
+  header = ToExpression[#, InputForm] & /@ tokens[[2 ;; 6]];
+  activeCount = Lookup[handle, "ActiveCount"];
+  valueTokens = tokens[[7 ;;]];
+  If[
+    header[[2 ;;]] =!= {layers, columns, dimension, activeCount} ||
+    Length[valueTokens] =!= 2 columns layers dimension,
+    Message[CHESSNativeRun::protocol];
+    Return[$Failed]
+  ];
+  values = CHESSNativeParseComplexValues[valueTokens, precision];
+  endpointLayers = Partition[Partition[values, dimension], layers];
+  <|
+    "EndpointLayers" -> endpointLayers,
+    "KernelSeconds" -> header[[1]],
+    "BackendCallSeconds" -> callSeconds,
+    "Layers" -> layers,
+    "Columns" -> columns,
+    "ActiveCount" -> activeCount
+  |>
+];
+
+CHESSNativePolynomialResult[
+  handle_Association, run_Association, resultData_
+] := Module[{layers, endpoint, fetched, states, nodeValues},
+  layers = Lookup[run, "Layers"];
+  endpoint = Transpose[First[Lookup[run, "EndpointLayers"]]];
+  If[resultData === "Endpoint",
+    nodeValues = Missing["NotRequested"],
+    fetched = CHESSNativeFetch[handle, 0, layers - 1];
+    If[fetched === $Failed, Return[$Failed]];
+    states = First[Lookup[fetched, "Data"]];
+    nodeValues = Table[
+      Flatten[states[[All, node]], 1],
+      {node, Length[Lookup[handle, "Nodes"]]}
+    ]
+  ];
+  {
+    Lookup[handle, "Nodes"],
+    nodeValues,
+    endpoint,
+    {},
+    {},
+    {
+      "PolynomialEpsilonActiveSupport", Lookup[handle, "ActiveCount"],
+      "Native", "DirectCoupledLU",
+      "KernelSeconds", Lookup[run, "KernelSeconds"],
+      "BackendCallSeconds", Lookup[run, "BackendCallSeconds"],
+      "ResultData", resultData
+    }
+  }
+];
+
+CHESSNativePolynomialPropagate[
+  matrixSpec_CHESSNodeEvaluator, boundary_?MatrixQ, interval_, rules_List,
+  nativeHandle_,
+  resultData_
+] := Module[{dimension, degree, handle, run, tensor},
+  If[!MemberQ[{"Full", "Endpoint"}, resultData],
+    Message[SpectralPropagate::nativeresult, resultData];
+    Return[$Failed]
+  ];
+  dimension = First[Dimensions[boundary]];
+  degree = CHESSNativeOptionValue[rules, "EpsilonDegree", Automatic];
+  If[degree <= 0, Return[$Failed]];
+  handle = If[
+    nativeHandle === Automatic,
+    CHESSNativePolynomialPrepare[matrixSpec, boundary, interval, rules],
+    nativeHandle
+  ];
+  If[
+    handle === $Failed ||
+    !CHESSNativePolynomialHandleCompatibleQ[
+      handle, matrixSpec, dimension, interval, rules, degree
+    ],
+    Message[SpectralPropagate::nativehandle];
+    Return[$Failed]
+  ];
+  tensor = {Transpose[boundary]};
+  run = CHESSNativePolynomialRun[
+    handle, tensor, resultData === "Full"
+  ];
+  If[run === $Failed, Return[$Failed]];
+  CHESSNativePolynomialResult[handle, run, resultData]
 ];
 
 CHESSNativeFetch[

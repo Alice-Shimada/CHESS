@@ -293,6 +293,90 @@ assert[
   maxError[complexResult[[3]], complexExpected] < 10^-60
 ];
 
+(* A genuine B0+B1+B2 system exercises the direct active-support LU.  The
+   complex B0 entry forces the FLINT nfloat-complex factorization; no fake-delta
+   expansion is involved. *)
+ClearAll[mixedB0, mixedB1, mixedB2, mixedScalar, mixedBatch];
+mixedB0[x_, requestedPrecision_] := N[
+  {
+    {1/5 + x/20, 0, I (1 + x)/11},
+    {0, 0, 0},
+    {(1 - x/3)/13, 0, -1/7 + x/30}
+  },
+  requestedPrecision
+];
+mixedB1[x_, requestedPrecision_] := N[
+  {{2/9, x/29, 0}, {1/17, -1/8, x/31}, {0, 1/37, 1/10}},
+  requestedPrecision
+];
+mixedB2[x_, requestedPrecision_] := N[
+  {{0, 1/19, 0}, {-1/23, 0, 1/41}, {1/43, 0, 0}},
+  requestedPrecision
+];
+mixedScalar[x_, requestedPrecision_] := {
+  mixedB0[x, requestedPrecision],
+  mixedB1[x, requestedPrecision],
+  mixedB2[x, requestedPrecision]
+};
+mixedBatch[points_, requestedPrecision_, threads_] :=
+  mixedScalar[#, requestedPrecision] & /@ points;
+mixedEvaluator = CHESSNodeEvaluator[mixedScalar, mixedBatch];
+mixedBoundary = N[
+  {{1, 1/3, 0, 0}, {-2, 0, 1/5, 0}, {1/7, -1/9, 0, 1/11}},
+  precision
+];
+mixedRules = {
+  "Nodes" -> 20,
+  "Precision" -> precision,
+  "WorkingPrecisionA" -> 90,
+  "EpsilonDegree" -> 2,
+  "ParallelEvaluation" -> False
+};
+mixedMathematica = SpectralPropagate[
+  mixedEvaluator, mixedBoundary, {0, 1},
+  Sequence @@ mixedRules,
+  "NumericalBackend" -> "Mathematica"
+];
+mixedHandle = CHESSNativePolynomialPrepare[
+  mixedEvaluator, mixedBoundary, {0, 1}, mixedRules
+];
+mixedNative = SpectralPropagate[
+  mixedEvaluator, mixedBoundary, {0, 1},
+  Sequence @@ mixedRules,
+  "NumericalBackend" -> "Native",
+  "NativeHandle" -> mixedHandle,
+  "ResultData" -> "Endpoint"
+];
+mixedNativeFull = SpectralPropagate[
+  mixedEvaluator, mixedBoundary, {0, 1},
+  Sequence @@ mixedRules,
+  "NumericalBackend" -> "Native",
+  "NativeHandle" -> mixedHandle,
+  "ResultData" -> "Full"
+];
+mixedNativeEndpointRequest = Quiet @ SpectralPropagate[
+  mixedEvaluator, mixedBoundary, {0, 1},
+  Sequence @@ mixedRules,
+  "NumericalBackend" -> "Native",
+  "RegularizedEndpoints" -> {0}
+];
+mixedListNative = Quiet @ SpectralPropagate[
+  {mixedB0, mixedB1, mixedB2}, mixedBoundary, {0, 1},
+  Sequence @@ mixedRules,
+  "NumericalBackend" -> "Native"
+];
+assert[
+  "native-direct-mixed-polynomial-complex",
+  AssociationQ[mixedHandle] && mixedMathematica =!= $Failed &&
+  mixedNative =!= $Failed && mixedNativeFull =!= $Failed &&
+  mixedNative[[6, 4]] === "DirectCoupledLU" &&
+  Dimensions[mixedNativeFull[[2]]] === {21, 12} &&
+  mixedNativeEndpointRequest === $Failed && mixedListNative === $Failed &&
+  maxError[mixedNativeFull[[2]], mixedMathematica[[2]]] < 10^-55 &&
+  maxError[mixedNativeFull[[3]], mixedMathematica[[3]]] < 10^-55 &&
+  maxError[mixedNative[[3]], mixedMathematica[[3]]] < 10^-55
+];
+
 CHESSNativeUninstall[];
 
 If[failures === {},

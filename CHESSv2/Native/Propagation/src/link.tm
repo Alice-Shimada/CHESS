@@ -18,6 +18,14 @@
 :End:
 
 :Begin:
+:Function: chess_native_polynomial_run
+:Pattern: ChessNativePolynomialRun[boundary_String, layers_Integer, columns_Integer, cacheStates_Integer]
+:Arguments: {boundary, layers, columns, cacheStates}
+:ArgumentTypes: {String, Integer, Integer, Integer}
+:ReturnType: Manual
+:End:
+
+:Begin:
 :Function: chess_native_fetch
 :Pattern: ChessNativeFetch[mode_Integer, selectedOrder_Integer]
 :Arguments: {mode, selectedOrder}

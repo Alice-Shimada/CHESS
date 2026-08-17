@@ -9,14 +9,16 @@ The kernel uses:
 - Boost.Multiprecision `mpfr_float` / `mpc_complex` for arbitrary-precision
   real and complex arithmetic;
 - MPFR, MPC, and GMP as the numerical libraries;
+- FLINT `nfloat_complex` for the directly factorized mixed-system active block;
 - OpenMP across independent components and node source products;
 - one cached LU factorization of the scalar Lobatto block;
 - sparse node operators;
-- a real-only fast path when both operators and boundary data are real.
+- a real-only fast path for the sequential canonical/fake-delta kernel.
 
-FLINT is not used for this linear-algebra kernel. The separate
-`FLINT` module uses FLINT `nfloat` where it is advantageous: large
-FORM-generated straight-line expressions evaluated at many nodes.
+The separate `FLINTBatchEvaluation` module remains the public interface for
+large FORM-generated expressions. NativeBackend uses FLINT internally only for
+the direct dense LU of a small active-support collocation block; these are
+distinct capabilities and APIs.
 
 ## Build
 
@@ -25,24 +27,36 @@ The defaults match the development machine and can be overridden:
 ```bash
 make \
   BOOST_INCLUDE=/path/to/boost_1_83_0 \
-  WSTP_DIR=/path/to/Mathematica/SystemFiles/Links/WSTP/DeveloperKit/Linux-x86-64/CompilerAdditions
+  WSTP_DIR=/path/to/Mathematica/SystemFiles/Links/WSTP/DeveloperKit/Linux-x86-64/CompilerAdditions \
+  FLINT_INCLUDE=/path/to/flint/include \
+  FLINT_DIR=/path/to/flint/lib
 ```
 
 The generated `chess_native_link`, object directory, and `wsprep` output are
 ignored by Git. A package checkout therefore never ships an opaque executable.
 
+Source ownership is intentionally narrow: `backend_types.hpp` contains shared
+numeric POD types, `flint_coupled_solver.*` owns every FLINT context/conversion/LU,
+and `backend.cpp` owns only the WSTP protocol and transport orchestration.
+
 ## Supported routes
 
 - one regular canonical interval;
 - regular B0-only propagation through the auxiliary-delta recurrence;
+- one regular mixed polynomial `CHESSNodeEvaluator` batch interval through a
+  directly factorized active-support operator, without an auxiliary-delta
+  series;
 - multiple boundary columns in one call;
 - full node data or endpoint-only transfer;
 - fixed or automatically estimated delta order (selection remains in the
   Mathematica interface).
 
-Segmented B0 propagation prepares one handle per segment. Singular endpoint
-regularization and genuinely mixed polynomial-epsilon systems remain on the
-existing Mathematica algorithms. Unsupported native requests fail explicitly.
+Segmented B0 propagation prepares one handle per segment. Direct mixed
+transport currently requires one regular interval, an explicit positive
+`EpsilonDegree`, and a `CHESSNodeEvaluator` batch function. Ordinary
+coefficient lists remain on the Mathematica route; an explicit Native request
+for such a list fails. Singular endpoint regularization also remains in
+Mathematica.
 
 ## Performance contract
 
@@ -50,6 +64,11 @@ existing Mathematica algorithms. Unsupported native requests fail explicitly.
 block once. Reuse its handle through the public `"NativeHandle"` option when
 transporting several boundaries. `"ResultData" -> "Endpoint"` avoids caching
 and transferring all node states and is the intended high-throughput mode.
+`CHESSNativePolynomialPrepare` additionally constructs the active component
+list and lets C++ assemble and factorize
+`D (x) I_active - diag(B0)` once. Positive epsilon powers remain sparse RHS
+operators. This preparation is substantial, so the direct mixed route is most
+useful when the handle is reused.
 The handle is bound to the evaluator expression, the transitive definitions of
 its Wolfram helper functions, and the numerical setup. Ordinary helper
 redefinitions invalidate it automatically. Mutable external state which is not
