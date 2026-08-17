@@ -201,13 +201,31 @@ for an ordinary `{B0,B1,...}` coefficient list fails rather than silently
 changing algorithms.
 
 Prepared handles may be reused through `"NativeHandle"`. A handle is bound to
-the evaluator definitions, interval, dimension, node count, and precision.
-Ordinary Wolfram definition changes invalidate it automatically.
+the evaluator definitions, interval, dimension, node count, requested
+precision, and Native guard precision. Ordinary Wolfram definition changes
+invalidate it automatically.
+
+Native propagation uses 20 guard digits by default: `"Precision" -> p`
+returns a result at the requested precision while the base Native transport,
+Lobatto matrix, boundary serialization, and result parsing use `p + 20`
+digits. Matrix sampling uses the larger of `"WorkingPrecisionA"` and this
+Native working precision plus ten sampling digits; the direct mixed FLINT LU
+retains an additional internal margin above that sampling precision.
+Set `"NativeGuardDigits" -> 0` to recover the historical no-guard behavior, or
+increase it for an ill-conditioned problem. This is a working-precision
+heuristic rather than a rigorous error bound, so precision-sensitive results
+should still be repeated at a higher setting.
+
+Native preparation fails closed if a nonzero matrix entry, interval endpoint,
+or boundary value carries insufficient actual precision. In particular, a
+machine-precision evaluator is never padded with decimal zeros and presented as
+an arbitrary-precision result.
 
 | Option | Default | Meaning |
 |---|---:|---|
 | `"NumericalBackend"` | `"Mathematica"` | select `"Native"` explicitly |
 | `"NativeHandle"` | `Automatic` | reuse a prepared native system |
+| `"NativeGuardDigits"` | `20` | extra C++/FLINT working digits |
 | `"ResultData"` | `"Full"` | use `"Endpoint"` to avoid node-state transfer |
 
 ## Auxiliary delta for `B0`-only systems

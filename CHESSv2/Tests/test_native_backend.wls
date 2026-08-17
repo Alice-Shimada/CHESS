@@ -40,7 +40,14 @@ rules = {
 };
 
 handle = CHESSNativePrepare[ScalarOperator, 1, {0, 1}, rules];
-CheckAssertion["native-prepare", AssociationQ[handle]];
+CheckAssertion[
+  "native-prepare",
+  AssociationQ[handle] &&
+  Lookup[handle, "Precision"] === precision &&
+  Lookup[handle, "NativeGuardDigits"] === 20 &&
+  Lookup[handle, "NativePrecision"] === precision + 20 &&
+  Lookup[handle, "NativeWorkingPrecisionA"] === 100
+];
 
 canonicalBoundary = N[{{1} ~Join~ ConstantArray[0, degree]}, precision];
 canonicalRun = CHESSNativeRun[handle, {Transpose[canonicalBoundary]}];
@@ -367,9 +374,116 @@ CheckAssertion[
   mixedNative[[6, 4]] === "DirectCoupledLU" &&
   Dimensions[mixedNativeFull[[2]]] === {21, 12} &&
   mixedNativeEndpointRequest === $Failed && mixedListNative === $Failed &&
+  Lookup[mixedHandle, "NativeGuardDigits"] === 20 &&
+  Lookup[mixedHandle, "NativePrecision"] === precision + 20 &&
+  MemberQ[mixedNative[[6]], "NativeWorkingPrecision"] &&
   MaxError[mixedNativeFull[[2]], mixedMathematica[[2]]] < 10^-55 &&
   MaxError[mixedNativeFull[[3]], mixedMathematica[[3]]] < 10^-55 &&
   MaxError[mixedNative[[3]], mixedMathematica[[3]]] < 10^-55
+];
+
+(* NativeGuardDigits raises only the backend working precision.  The requested
+   public Precision remains unchanged, participates in handle compatibility,
+   and may be restored to the historical no-guard behavior explicitly. *)
+zeroGuardRules = Join[rules, {"NativeGuardDigits" -> 0}];
+zeroGuardHandle = CHESSNativePrepare[
+  ScalarOperator, 1, {0, 1}, zeroGuardRules
+];
+zeroGuardResult = If[
+  AssociationQ[zeroGuardHandle],
+  SpectralPropagate[
+    {0, ScalarOperator}, canonicalBoundary, {0, 1},
+    Sequence @@ zeroGuardRules,
+    "NumericalBackend" -> "Native",
+    "NativeHandle" -> zeroGuardHandle,
+    "ResultData" -> "Endpoint"
+  ],
+  $Failed
+];
+invalidGuardResult = Quiet @ SpectralPropagate[
+  {0, ScalarOperator}, canonicalBoundary, {0, 1},
+  Sequence @@ rules,
+  "NumericalBackend" -> "Native",
+  "NativeGuardDigits" -> -1,
+  "ResultData" -> "Endpoint"
+];
+CheckAssertion[
+  "native-guard-precision-contract",
+  AssociationQ[zeroGuardHandle] && zeroGuardResult =!= $Failed &&
+  Lookup[zeroGuardHandle, "Precision"] === precision &&
+  Lookup[zeroGuardHandle, "NativePrecision"] === precision &&
+  Lookup[zeroGuardHandle, "NativeGuardDigits"] === 0 &&
+  !CHESSNativeHandleCompatibleQ[
+    zeroGuardHandle, ScalarOperator, 1, {0, 1}, rules
+  ] &&
+  MemberQ[zeroGuardResult[[6]], "NativeWorkingPrecision"] &&
+  invalidGuardResult === $Failed
+];
+
+(* Machine-precision nonzero input must fail closed.  Printing it with more
+   digits would only manufacture a high-precision-looking C++ result.  Exact
+   zeros remain valid because they carry no numerical uncertainty. *)
+ClearAll[MachineOperator];
+MachineOperator[x_, requestedPrecision_] := {{1.0/3.0}};
+machineHandle = Quiet @ CHESSNativePrepare[
+  MachineOperator, 1, {0, 1}, rules
+];
+machineBoundary = canonicalBoundary;
+machineBoundary[[1, 1]] = 1.0;
+machineBoundaryRun = Quiet @ CHESSNativeRun[
+  zeroGuardHandle, {Transpose[machineBoundary]}, False
+];
+machineIntervalHandle = Quiet @ CHESSNativePrepare[
+  ScalarOperator, 1, {0., 1.}, rules
+];
+machineMixedEvaluator = CHESSNativeMatrixAdapter[
+  {MachineOperator, ScalarOperator}, 1
+];
+machineMixedRules = Join[
+  rules, {"EpsilonDegree" -> 1}
+];
+machineMixedHandle = Quiet @ CHESSNativePolynomialPrepare[
+  machineMixedEvaluator, canonicalBoundary, {0, 1}, machineMixedRules
+];
+CheckAssertion[
+  "native-low-precision-input-fails-closed",
+  machineHandle === $Failed && machineBoundaryRun === $Failed &&
+  machineIntervalHandle === $Failed && machineMixedHandle === $Failed &&
+  !CHESSNativeMatrixPrecisionQ[{{1.0/3.0}}, precision] &&
+  CHESSNativeMatrixPrecisionQ[{{0., 1/3}}, precision]
+];
+
+(* Segmented B0 propagation must construct every subinterval at guarded
+   precision and carry the unrounded endpoint internally to the next segment.
+   Only the final public state is rounded back to the requested Precision. *)
+ClearAll[SegmentOperator];
+segmentSamplePrecisions = {};
+SegmentOperator[x_, requestedPrecision_?NumericQ] := (
+  AppendTo[segmentSamplePrecisions, {Precision[x], requestedPrecision}];
+  N[{{1/3}}, requestedPrecision]
+);
+segmentedNative = SpectralPropagate[
+  {SegmentOperator}, N[{{1}}, precision], {0, 1},
+  "Nodes" -> 18,
+  "Precision" -> precision,
+  "WorkingPrecisionA" -> 90,
+  "NativeGuardDigits" -> 20,
+  "NumericalBackend" -> "Native",
+  "Segments" -> 3,
+  "DeltaOrder" -> 32,
+  "MaxDeltaOrder" -> 32,
+  "ResultData" -> "Endpoint",
+  "ParallelEvaluation" -> False
+];
+CheckAssertion[
+  "native-segmented-guard-precision",
+  segmentedNative =!= $Failed && segmentSamplePrecisions =!= {} &&
+  Min[segmentSamplePrecisions[[All, 1]]] > precision + 10 &&
+  Union[segmentSamplePrecisions[[All, 2]]] === {
+    Max[90, precision + 20 + 10]
+  } &&
+  Count[Flatten[segmentedNative[[6]]], "NativeWorkingPrecision"] === 3 &&
+  Abs[segmentedNative[[3, 1, 1]] - Exp[N[1/3, precision]]] < 10^-40
 ];
 
 CHESSNativeUninstall[];

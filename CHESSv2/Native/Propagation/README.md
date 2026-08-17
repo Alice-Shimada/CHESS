@@ -64,6 +64,16 @@ Mathematica.
 block once. Reuse its handle through the public `"NativeHandle"` option when
 transporting several boundaries. `"ResultData" -> "Endpoint"` avoids caching
 and transferring all node states and is the intended high-throughput mode.
+The public `"Precision"` remains the requested output precision; Native setup
+and propagation use `"NativeGuardDigits" -> 20` extra decimal digits by
+default. The sampled matrix precision is raised when necessary so it is never
+requested below the guarded Native precision plus ten sampling digits; returned
+nonzero entries must retain at least the guarded Native precision. Handles
+record both values and cannot be reused with a different guard setting.
+Nonzero machine-precision matrix, interval, or boundary input fails closed
+instead of being padded to the guarded precision. The direct mixed FLINT LU
+keeps its existing additional internal margin above the sampled matrix
+precision.
 `CHESSNativePolynomialPrepare` additionally constructs the active component
 list and lets C++ assemble and factorize
 `D (x) I_active - diag(B0)` once. Positive epsilon powers remain sparse RHS

@@ -48,6 +48,9 @@ ClearAll[
   CHESSNativeWriteComplex,
   CHESSNativeParseNumber,
   CHESSNativeParseComplexValues,
+  CHESSNativeValuePrecisionQ,
+  CHESSNativeDataPrecisionQ,
+  CHESSNativeMatrixPrecisionQ,
   CHESSNativeHandleValidQ,
   CHESSNativeHandleCompatibleQ,
   CHESSNativePolynomialHandleCompatibleQ,
@@ -64,7 +67,9 @@ CHESSNativeInstall::missing =
 CHESSNativePrepare::matrix =
   "Native preparation could not evaluate numerical `1` by `1` operators on all ordinary Lobatto nodes.";
 CHESSNativePrepare::option =
-  "Invalid native preparation option values: Nodes=`1`, Precision=`2`, WorkingPrecisionA=`3`.";
+  "Invalid native preparation option values: Nodes=`1`, Precision=`2`, WorkingPrecisionA=`3`, NativeGuardDigits=`4`.";
+CHESSNativePrepare::precision =
+  "Native `1` data contain nonzero approximate values below the required precision `2`.";
 CHESSNativePolynomialPrepare::matrix =
   "Native polynomial preparation could not obtain degree `1` numerical `2` by `2` coefficient matrices at every ordinary Lobatto node.";
 CHESSNativePolynomialPrepare::active =
@@ -75,6 +80,8 @@ CHESSNativeRun::boundary =
   "Native boundary tensor has dimensions `1`; expected {columns,layers,`2`}.";
 CHESSNativeRun::protocol =
   "The native backend returned an invalid or incompatible response.";
+CHESSNativeRun::precision =
+  "Native boundary data contain nonzero approximate values below the requested output precision `1`.";
 
 Module[{coreDirectory, packageDirectory},
   coreDirectory = DirectoryName[ExpandFileName[$InputFileName]];
@@ -163,6 +170,33 @@ CHESSNativeParseComplexValues[tokens_List, precision_] := MapThread[
   Transpose @ Partition[CHESSNativeParseNumber[#, precision] & /@ tokens, 2]
 ];
 
+(* Never manufacture precision by serializing a machine number with a longer
+   decimal format.  Exact numbers and exact zeros are safe at any requested
+   precision; every other value must carry enough genuine arbitrary-precision
+   information before it may enter the Native backend. *)
+CHESSNativeValuePrecisionQ[value_?NumberQ, requiredPrecision_Integer] :=
+  TrueQ[value == 0] || Precision[value] === Infinity ||
+  TrueQ[Precision[value] >= requiredPrecision];
+CHESSNativeValuePrecisionQ[_, _] := False;
+
+CHESSNativeDataPrecisionQ[data_, requiredPrecision_Integer] := And @@ (
+  CHESSNativeValuePrecisionQ[#, requiredPrecision] & /@ Flatten[data]
+);
+
+(* SparseArray's final ArrayRules item is the default zero.  Check only stored
+   nonzero entries so approximate 0. values do not reject an otherwise exact
+   sparse operator. *)
+CHESSNativeMatrixPrecisionQ[matrix_, requiredPrecision_Integer] := Module[
+  {values},
+  values = Cases[
+    Most[ArrayRules[SparseArray[matrix]]],
+    HoldPattern[_ -> value_] :> value
+  ];
+  And @@ (
+    CHESSNativeValuePrecisionQ[#, requiredPrecision] & /@ values
+  )
+];
+
 CHESSNativeOptionValue[rules_List, name_, default_] :=
   Replace[name /. rules, name -> default];
 
@@ -245,17 +279,25 @@ CHESSNativeHandleValidQ[handle_] := AssociationQ[handle] &&
 CHESSNativeHandleCompatibleQ[
   handle_, matrixSpec_, dimension_Integer, interval : {_, _},
   canonicalRules_List
-] := Module[{nodes, precision, precisionA, handleInterval},
+] := Module[{nodes, precision, precisionA, guardDigits, handleInterval},
   If[!CHESSNativeHandleValidQ[handle], Return[False]];
   nodes = CHESSNativeOptionValue[canonicalRules, "Nodes", 48];
   precision = CHESSNativeOptionValue[canonicalRules, "Precision", 160];
   precisionA = CHESSNativeOptionValue[
     canonicalRules, "WorkingPrecisionA", 220
   ];
+  guardDigits = CHESSNativeOptionValue[
+    canonicalRules, "NativeGuardDigits", 20
+  ];
+  If[!IntegerQ[guardDigits] || guardDigits < 0, Return[False]];
   handleInterval = Lookup[handle, "Interval", Missing["Interval"]];
   Lookup[handle, "Dimension", Missing["Dimension"]] === dimension &&
   Lookup[handle, "NodesOption", Missing["NodesOption"]] === nodes &&
   Lookup[handle, "Precision", Missing["Precision"]] === precision &&
+  Lookup[handle, "NativeGuardDigits", Missing["NativeGuardDigits"]] ===
+    guardDigits &&
+  Lookup[handle, "NativePrecision", Missing["NativePrecision"]] ===
+    precision + guardDigits &&
   Lookup[handle, "WorkingPrecisionA", Missing["WorkingPrecisionA"]] ===
     precisionA &&
   Lookup[handle, "EvaluatorToken", Missing["EvaluatorToken"]] ===
@@ -284,8 +326,10 @@ CHESSNativePrepare[
   canonicalRules_List
 ] := Module[
   {
-    nodesOption, precision, precisionA, parallelSpec, kernelSpec, threads,
-    collocation, nodes, scalarMatrix, evaluator, nodeMatrices, setupFile,
+    nodesOption, precision, nativePrecision, precisionA, nativePrecisionA,
+    guardDigits, parallelSpec, kernelSpec, threads,
+    collocation, nodes, publicNodes, scalarMatrix, evaluator, nodeMatrices,
+    setupFile,
     stream, rules, entries, loadSeconds, loadResult, tag, Cleanup
   },
   nodesOption = CHESSNativeOptionValue[canonicalRules, "Nodes", 48];
@@ -293,6 +337,16 @@ CHESSNativePrepare[
   precisionA = CHESSNativeOptionValue[
     canonicalRules, "WorkingPrecisionA", 220
   ];
+  guardDigits = CHESSNativeOptionValue[
+    canonicalRules, "NativeGuardDigits", 20
+  ];
+  nativePrecision = precision + guardDigits;
+  (* Ask matrix evaluators for an additional ten digits when the guarded
+     transport precision would otherwise determine the sampling precision.
+     Ordinary arithmetic may lose a few digits before the completed matrix is
+     returned; the nonzero-entry check below still requires the full guarded
+     transport precision actually to survive. *)
+  nativePrecisionA = Max[precisionA, nativePrecision + 10];
   parallelSpec = CHESSNativeOptionValue[
     canonicalRules, "ParallelEvaluation", Automatic
   ];
@@ -300,25 +354,36 @@ CHESSNativePrepare[
   If[
     !IntegerQ[nodesOption] || nodesOption <= 0 ||
     !IntegerQ[precision] || precision <= 0 ||
-    !IntegerQ[precisionA] || precisionA < precision,
+    !IntegerQ[precisionA] || precisionA < precision ||
+    !IntegerQ[guardDigits] || guardDigits < 0,
     Message[
-      CHESSNativePrepare::option, nodesOption, precision, precisionA
+      CHESSNativePrepare::option,
+      nodesOption, precision, precisionA, guardDigits
     ];
+    Return[$Failed]
+  ];
+  If[!CHESSNativeDataPrecisionQ[interval, precision],
+    Message[CHESSNativePrepare::precision, "interval", precision];
     Return[$Failed]
   ];
   If[!MatchQ[CHESSNativeInstall[], _LinkObject], Return[$Failed]];
 
-  collocation = ChebyshevLobattoData[nodesOption, interval, precision];
-  nodes = N[collocation[[1]], precision];
+  collocation = ChebyshevLobattoData[
+    nodesOption, interval, nativePrecisionA
+  ];
+  nodes = N[collocation[[1]], nativePrecisionA];
+  publicNodes = N[nodes, precision];
   scalarMatrix = N[
-    Normal @ BaseScalarCollocationMatrix[collocation[[2]]], precision
+    Normal @ BaseScalarCollocationMatrix[collocation[[2]]], nativePrecision
   ];
   evaluator = CHESSCanonicalNodeEvaluator[
     matrixSpec, {dimension, dimension}
   ];
   threads = CHESSBatchThreadCount[parallelSpec, nodesOption, kernelSpec];
   nodeMatrices = Quiet @ Check[
-    CHESSNodeEvaluatorBatch[evaluator][Rest[nodes], precisionA, threads],
+    CHESSNodeEvaluatorBatch[evaluator][
+      Rest[nodes], nativePrecisionA, threads
+    ],
     $Failed
   ];
   If[
@@ -326,9 +391,20 @@ CHESSNativePrepare[
     Length[nodeMatrices] =!= nodesOption ||
     !AllTrue[
       nodeMatrices,
-      CHESSMatrixMatchesDimensionsQ[#, {dimension, dimension}] &
+      CHESSMatrixMatchesDimensionsQ[#, {dimension, dimension}] &&
+        CHESSNativeMatrixPrecisionQ[#, nativePrecision] &
     ],
-    Message[CHESSNativePrepare::matrix, dimension];
+    If[
+      ListQ[nodeMatrices] && Length[nodeMatrices] === nodesOption &&
+      AllTrue[
+        nodeMatrices,
+        CHESSMatrixMatchesDimensionsQ[#, {dimension, dimension}] &
+      ],
+      Message[
+        CHESSNativePrepare::precision, "matrix", nativePrecision
+      ],
+      Message[CHESSNativePrepare::matrix, dimension]
+    ];
     Return[$Failed]
   ];
 
@@ -358,11 +434,11 @@ CHESSNativePrepare[
       Return[$Failed]
     ];
     WriteString[
-      stream, "CHESSCPP1 ", precision, " ", dimension, " ",
+      stream, "CHESSCPP1 ", nativePrecision, " ", dimension, " ",
       Length[nodes], "\n"
     ];
     Scan[
-      CHESSNativeWriteComplex[stream, #, precision] &,
+      CHESSNativeWriteComplex[stream, #, nativePrecision] &,
       Flatten[scalarMatrix]
     ];
     Do[
@@ -376,7 +452,7 @@ CHESSNativePrepare[
       Scan[
         Function[entry,
           WriteString[stream, entry[[1]], " ", entry[[2]], " "];
-          CHESSNativeWriteComplex[stream, entry[[3]], precision]
+          CHESSNativeWriteComplex[stream, entry[[3]], nativePrecision]
         ],
         entries
       ],
@@ -396,10 +472,13 @@ CHESSNativePrepare[
   <|
     "Generation" -> $CHESSNativeGeneration,
     "Dimension" -> dimension,
-    "Nodes" -> nodes,
+    "Nodes" -> publicNodes,
     "NodesOption" -> nodesOption,
     "Precision" -> precision,
+    "NativePrecision" -> nativePrecision,
+    "NativeGuardDigits" -> guardDigits,
     "WorkingPrecisionA" -> precisionA,
+    "NativeWorkingPrecisionA" -> nativePrecisionA,
     "EvaluatorToken" -> CHESSNativeEvaluatorToken[matrixSpec],
     "Interval" -> interval,
     "LoadSeconds" -> loadSeconds
@@ -416,14 +495,19 @@ CHESSNativePolynomialPrepare[
   rules_List
 ] := Module[
   {
-    nodesOption, precision, precisionA, parallelSpec, kernelSpec, degree,
-    dimension, threads, collocation, nodes, scalarMatrix, ordinaryValues,
+    nodesOption, precision, nativePrecision, precisionA, nativePrecisionA,
+    guardDigits, parallelSpec, kernelSpec, degree,
+    dimension, threads, collocation, nodes, publicNodes, scalarMatrix,
+    ordinaryValues,
     matricesByNode, zeroMatrices, b0Nodes, active, flintBits, setupFile, stream,
     loadSeconds, loadResult, tag, Cleanup, node, power
   },
   nodesOption = CHESSNativeOptionValue[rules, "Nodes", 48];
   precision = CHESSNativeOptionValue[rules, "Precision", 160];
   precisionA = CHESSNativeOptionValue[rules, "WorkingPrecisionA", 220];
+  guardDigits = CHESSNativeOptionValue[rules, "NativeGuardDigits", 20];
+  nativePrecision = precision + guardDigits;
+  nativePrecisionA = Max[precisionA, nativePrecision + 10];
   parallelSpec = CHESSNativeOptionValue[
     rules, "ParallelEvaluation", Automatic
   ];
@@ -434,22 +518,33 @@ CHESSNativePolynomialPrepare[
     !IntegerQ[nodesOption] || nodesOption <= 0 ||
     !IntegerQ[precision] || precision <= 0 ||
     !IntegerQ[precisionA] || precisionA < precision ||
+    !IntegerQ[guardDigits] || guardDigits < 0 ||
     !IntegerQ[degree] || degree <= 0,
     Message[
-      CHESSNativePrepare::option, nodesOption, precision, precisionA
+      CHESSNativePrepare::option,
+      nodesOption, precision, precisionA, guardDigits
     ];
+    Return[$Failed]
+  ];
+  If[!CHESSNativeDataPrecisionQ[interval, precision],
+    Message[CHESSNativePrepare::precision, "interval", precision];
     Return[$Failed]
   ];
   If[!MatchQ[CHESSNativeInstall[], _LinkObject], Return[$Failed]];
 
-  collocation = ChebyshevLobattoData[nodesOption, interval, precision];
-  nodes = N[collocation[[1]], precision];
+  collocation = ChebyshevLobattoData[
+    nodesOption, interval, nativePrecisionA
+  ];
+  nodes = N[collocation[[1]], nativePrecisionA];
+  publicNodes = N[nodes, precision];
   scalarMatrix = N[
-    Normal @ BaseScalarCollocationMatrix[collocation[[2]]], precision
+    Normal @ BaseScalarCollocationMatrix[collocation[[2]]], nativePrecision
   ];
   threads = CHESSBatchThreadCount[parallelSpec, nodesOption, kernelSpec];
   ordinaryValues = Quiet @ Check[
-    CHESSNodeEvaluatorBatch[matrixSpec][Rest[nodes], precisionA, threads],
+    CHESSNodeEvaluatorBatch[matrixSpec][
+      Rest[nodes], nativePrecisionA, threads
+    ],
     $Failed
   ];
   If[
@@ -459,8 +554,10 @@ CHESSNativePolynomialPrepare[
       Function[nodeMatrices,
         ListQ[nodeMatrices] && Length[nodeMatrices] >= degree + 1 &&
         And @@ (
-          MatrixQ[#, NumericQ] && Dimensions[#] === {dimension, dimension} & /@
-            Take[nodeMatrices, degree + 1]
+          MatrixQ[#, NumericQ] &&
+            Dimensions[#] === {dimension, dimension} &&
+            CHESSNativeMatrixPrecisionQ[#, nativePrecision] & /@
+              Take[nodeMatrices, degree + 1]
         )
       ],
       ordinaryValues
@@ -470,7 +567,8 @@ CHESSNativePolynomialPrepare[
   ];
   ordinaryValues = Map[
     Function[nodeMatrices,
-      SparseArray[N[#, precisionA]] & /@ Take[nodeMatrices, degree + 1]
+      SparseArray[N[#, nativePrecisionA]] & /@
+        Take[nodeMatrices, degree + 1]
     ],
     ordinaryValues
   ];
@@ -485,7 +583,7 @@ CHESSNativePolynomialPrepare[
     Message[CHESSNativePolynomialPrepare::active];
     Return[$Failed]
   ];
-  flintBits = Ceiling[(precisionA + 20) Log[2, 10]];
+  flintBits = Ceiling[(nativePrecisionA + 20) Log[2, 10]];
 
   tag = IntegerString[
     Hash[{AbsoluteTime[], $ProcessID, RandomInteger[2^31 - 1]}, "CRC32"]
@@ -514,11 +612,11 @@ CHESSNativePolynomialPrepare[
       Return[$Failed]
     ];
     WriteString[
-      stream, "CHESSCPP2 ", precision, " ", dimension, " ",
+      stream, "CHESSCPP2 ", nativePrecision, " ", dimension, " ",
       Length[nodes], "\n"
     ];
     Scan[
-      CHESSNativeWriteComplex[stream, #, precision] &,
+      CHESSNativeWriteComplex[stream, #, nativePrecision] &,
       Flatten[scalarMatrix]
     ];
     WriteString[
@@ -527,13 +625,13 @@ CHESSNativePolynomialPrepare[
     ];
     Do[
       CHESSNativeWriteSparseMatrix[
-        stream, matricesByNode[[node, 1]], precisionA + 20
+        stream, matricesByNode[[node, 1]], nativePrecisionA + 20
       ],
       {node, 2, Length[nodes]}
     ];
     Do[
       CHESSNativeWriteSparseMatrix[
-        stream, matricesByNode[[node, power + 1]], precisionA + 20
+        stream, matricesByNode[[node, power + 1]], nativePrecisionA + 20
       ],
       {power, 1, degree}, {node, 2, Length[nodes]}
     ];
@@ -554,10 +652,13 @@ CHESSNativePolynomialPrepare[
     "Degree" -> degree,
     "ActiveCount" -> Length[active],
     "Dimension" -> dimension,
-    "Nodes" -> nodes,
+    "Nodes" -> publicNodes,
     "NodesOption" -> nodesOption,
     "Precision" -> precision,
+    "NativePrecision" -> nativePrecision,
+    "NativeGuardDigits" -> guardDigits,
     "WorkingPrecisionA" -> precisionA,
+    "NativeWorkingPrecisionA" -> nativePrecisionA,
     "EvaluatorToken" -> CHESSNativeEvaluatorToken[matrixSpec],
     "Interval" -> interval,
     "LoadSeconds" -> loadSeconds
@@ -572,7 +673,7 @@ CHESSNativeRun[
   handle_Association, boundaryTensor_List, cacheStates_: True
 ] := Module[
   {
-    dimension, precision, dimensions, columns, layers, boundaryText,
+    dimension, precision, outputPrecision, dimensions, columns, layers, boundaryText,
     raw, tokens, header, valueTokens, values, endpointLayers, callSeconds
   },
   If[!CHESSNativeHandleValidQ[handle],
@@ -584,10 +685,17 @@ CHESSNativeRun[
     Return[$Failed]
   ];
   dimension = Lookup[handle, "Dimension"];
-  precision = Lookup[handle, "Precision"];
+  outputPrecision = Lookup[handle, "Precision"];
+  precision = Lookup[
+    handle, "NativePrecision", outputPrecision
+  ];
   dimensions = Dimensions[boundaryTensor];
   If[Length[dimensions] =!= 3 || Last[dimensions] =!= dimension,
     Message[CHESSNativeRun::boundary, dimensions, dimension];
+    Return[$Failed]
+  ];
+  If[!CHESSNativeDataPrecisionQ[boundaryTensor, outputPrecision],
+    Message[CHESSNativeRun::precision, outputPrecision];
     Return[$Failed]
   ];
   {columns, layers} = Take[dimensions, 2];
@@ -640,7 +748,8 @@ CHESSNativePolynomialRun[
   handle_Association, boundaryTensor_List, cacheStates_: True
 ] := Module[
   {
-    dimension, precision, dimensions, columns, layers, boundaryText, raw,
+    dimension, precision, outputPrecision, dimensions, columns, layers,
+    boundaryText, raw,
     tokens, header, valueTokens, values, endpointLayers, callSeconds,
     activeCount
   },
@@ -655,10 +764,17 @@ CHESSNativePolynomialRun[
     Return[$Failed]
   ];
   dimension = Lookup[handle, "Dimension"];
-  precision = Lookup[handle, "Precision"];
+  outputPrecision = Lookup[handle, "Precision"];
+  precision = Lookup[
+    handle, "NativePrecision", outputPrecision
+  ];
   dimensions = Dimensions[boundaryTensor];
   If[Length[dimensions] =!= 3 || Last[dimensions] =!= dimension,
     Message[CHESSNativeRun::boundary, dimensions, dimension];
+    Return[$Failed]
+  ];
+  If[!CHESSNativeDataPrecisionQ[boundaryTensor, outputPrecision],
+    Message[CHESSNativeRun::precision, outputPrecision];
     Return[$Failed]
   ];
   {columns, layers} = Take[dimensions, 2];
@@ -711,17 +827,24 @@ CHESSNativePolynomialRun[
 
 CHESSNativePolynomialResult[
   handle_Association, run_Association, resultData_
-] := Module[{layers, endpoint, fetched, states, nodeValues},
+] := Module[
+  {layers, outputPrecision, endpoint, fetched, states, nodeValues},
   layers = Lookup[run, "Layers"];
-  endpoint = Transpose[First[Lookup[run, "EndpointLayers"]]];
+  outputPrecision = Lookup[handle, "Precision"];
+  endpoint = N[
+    Transpose[First[Lookup[run, "EndpointLayers"]]], outputPrecision
+  ];
   If[resultData === "Endpoint",
     nodeValues = Missing["NotRequested"],
     fetched = CHESSNativeFetch[handle, 0, layers - 1];
     If[fetched === $Failed, Return[$Failed]];
     states = First[Lookup[fetched, "Data"]];
-    nodeValues = Table[
-      Flatten[states[[All, node]], 1],
-      {node, Length[Lookup[handle, "Nodes"]]}
+    nodeValues = N[
+      Table[
+        Flatten[states[[All, node]], 1],
+        {node, Length[Lookup[handle, "Nodes"]]}
+      ],
+      outputPrecision
     ]
   ];
   {
@@ -735,6 +858,7 @@ CHESSNativePolynomialResult[
       "Native", "DirectCoupledLU",
       "KernelSeconds", Lookup[run, "KernelSeconds"],
       "BackendCallSeconds", Lookup[run, "BackendCallSeconds"],
+      "NativeWorkingPrecision", Lookup[handle, "NativePrecision"],
       "ResultData", resultData
     }
   }
@@ -784,7 +908,9 @@ CHESSNativeFetch[
     Message[CHESSNativeRun::handle];
     Return[$Failed]
   ];
-  precision = Lookup[handle, "Precision"];
+  precision = Lookup[
+    handle, "NativePrecision", Lookup[handle, "Precision"]
+  ];
   dimension = Lookup[handle, "Dimension"];
   raw = CHESSNativeBackend`Link`Private`CHESSNativeFetch[mode, selectedOrder];
   If[!StringQ[raw], Return[$Failed]];
@@ -827,18 +953,28 @@ CHESSNativeFetch[
    historical result payload was transferred through WSTP. *)
 CHESSNativeCanonicalResult[
   handle_Association, run_Association, resultData_
-] := Module[{layers, dimension, endpoint, fetched, states, nodeValues},
+] := Module[
+  {
+    layers, dimension, outputPrecision, endpoint, fetched, states,
+    nodeValues
+  },
   layers = Lookup[run, "Layers"];
   dimension = Lookup[handle, "Dimension"];
-  endpoint = Transpose[First[Lookup[run, "EndpointLayers"]]];
+  outputPrecision = Lookup[handle, "Precision"];
+  endpoint = N[
+    Transpose[First[Lookup[run, "EndpointLayers"]]], outputPrecision
+  ];
   If[resultData === "Endpoint",
     nodeValues = Missing["NotRequested"],
     fetched = CHESSNativeFetch[handle, 0, layers - 1];
     If[fetched === $Failed, Return[$Failed]];
     states = First[Lookup[fetched, "Data"]];
-    nodeValues = Table[
-      Flatten[states[[All, node]], 1],
-      {node, Length[Lookup[handle, "Nodes"]]}
+    nodeValues = N[
+      Table[
+        Flatten[states[[All, node]], 1],
+        {node, Length[Lookup[handle, "Nodes"]]}
+      ],
+      outputPrecision
     ]
   ];
   {
@@ -851,6 +987,7 @@ CHESSNativeCanonicalResult[
       "SequentialEpsilon", "Native",
       "KernelSeconds", Lookup[run, "KernelSeconds"],
       "BackendCallSeconds", Lookup[run, "BackendCallSeconds"],
+      "NativeWorkingPrecision", Lookup[handle, "NativePrecision"],
       "ResultData", resultData
     }
   }
@@ -882,9 +1019,21 @@ CHESSNativeFakeDeltaAssembleResult[
   handle_Association, nativeRun_Association,
   coefficientMatrices_List, selectedOrder_Integer?NonNegative,
   tailEstimate_, tolerance_, selectionMode_, computedOrder_Integer?NonNegative,
-  resultData_
-] := Module[{finalState, fetched, columnNodeData, nodeMatrices, nodeValues},
-  finalState = Total[Take[coefficientMatrices, selectedOrder + 1]];
+  resultData_, preserveGuardState_ : False
+] := Module[
+  {
+    outputPrecision, nativeFinalState, finalState, fetched, columnNodeData,
+    nodeMatrices, nodeValues
+  },
+  outputPrecision = Lookup[handle, "Precision"];
+  nativeFinalState = Total[
+    Take[coefficientMatrices, selectedOrder + 1]
+  ];
+  finalState = If[
+    TrueQ[preserveGuardState],
+    nativeFinalState,
+    N[nativeFinalState, outputPrecision]
+  ];
   If[resultData === "Endpoint",
     nodeValues = Missing["NotRequested"],
     fetched = CHESSNativeFetch[handle, 1, selectedOrder];
@@ -894,7 +1043,10 @@ CHESSNativeFakeDeltaAssembleResult[
       Transpose[columnNodeData[[All, node, All]]],
       {node, Length[Lookup[handle, "Nodes"]]}
     ];
-    nodeValues = Flatten[Transpose[#], 1] & /@ nodeMatrices
+    nodeValues = N[
+      Flatten[Transpose[#], 1] & /@ nodeMatrices,
+      outputPrecision
+    ]
   ];
   {
     Lookup[handle, "Nodes"],
@@ -912,6 +1064,7 @@ CHESSNativeFakeDeltaAssembleResult[
       "KernelSeconds", Lookup[Lookup[nativeRun, "Run"], "KernelSeconds"],
       "BackendCallSeconds",
         Lookup[Lookup[nativeRun, "Run"], "BackendCallSeconds"],
+      "NativeWorkingPrecision", Lookup[handle, "NativePrecision"],
       "ResultData", resultData
     }
   }
@@ -919,7 +1072,8 @@ CHESSNativeFakeDeltaAssembleResult[
 
 CHESSNativeFakeDeltaPropagateSingle[
   b0_, boundary_?MatrixQ, interval_, canonicalRules_List,
-  deltaOrder_, tolerance_, maxOrder_Integer, nativeHandle_, resultData_
+  deltaOrder_, tolerance_, maxOrder_Integer, nativeHandle_, resultData_,
+  preserveGuardState_ : False
 ] := Module[
   {
     dimension, handle, currentOrder, nativeRun, coefficientMatrices,
@@ -959,7 +1113,7 @@ CHESSNativeFakeDeltaPropagateSingle[
     ];
     Return @ CHESSNativeFakeDeltaAssembleResult[
       handle, nativeRun, coefficientMatrices, deltaOrder, tailEstimate,
-      tolerance, "Fixed", deltaOrder, resultData
+      tolerance, "Fixed", deltaOrder, resultData, preserveGuardState
     ]
   ];
 
@@ -978,7 +1132,8 @@ CHESSNativeFakeDeltaPropagateSingle[
     If[!MissingQ[selectedOrder],
       Return @ CHESSNativeFakeDeltaAssembleResult[
         handle, nativeRun, coefficientMatrices, selectedOrder, tailEstimate,
-        tolerance, "Automatic", currentOrder, resultData
+        tolerance, "Automatic", currentOrder, resultData,
+        preserveGuardState
       ]
     ];
     If[currentOrder >= maxOrder,
@@ -1001,15 +1156,36 @@ CHESSNativeFakeDeltaPropagate[
   nativeHandle_, resultData_
 ] := Module[
   {
-    precision, segmentPoints, state, result, allNodes, allValues,
-    segmentInfo, segment, localHandle, segmentFailure
+    precision, precisionA, guardDigits, nativePrecision, nativePrecisionA,
+    segmentPoints, state, result, allNodes, allValues, segmentInfo, segment,
+    localHandle, segmentFailure
   },
   If[segments > 1 && nativeHandle =!= Automatic,
     Message[SpectralPropagate::nativehandle];
     Return[$Failed]
   ];
   precision = CHESSNativeOptionValue[canonicalRules, "Precision", 160];
-  segmentPoints = N[Subdivide[x0, x1, segments], precision];
+  precisionA = CHESSNativeOptionValue[
+    canonicalRules, "WorkingPrecisionA", 220
+  ];
+  guardDigits = CHESSNativeOptionValue[
+    canonicalRules, "NativeGuardDigits", 20
+  ];
+  If[!IntegerQ[guardDigits] || guardDigits < 0,
+    Message[
+      CHESSNativePrepare::option,
+      CHESSNativeOptionValue[canonicalRules, "Nodes", 48],
+      precision,
+      CHESSNativeOptionValue[canonicalRules, "WorkingPrecisionA", 220],
+      guardDigits
+    ];
+    Return[$Failed]
+  ];
+  nativePrecision = precision + guardDigits;
+  nativePrecisionA = Max[precisionA, nativePrecision + 10];
+  segmentPoints = N[
+    Subdivide[x0, x1, segments], nativePrecisionA
+  ];
   state = boundary;
   allNodes = {};
   allValues = If[resultData === "Endpoint", Missing["NotRequested"], {}];
@@ -1026,7 +1202,8 @@ CHESSNativeFakeDeltaPropagate[
       tolerance,
       maxOrder,
       localHandle,
-      resultData
+      resultData,
+      segments > 1
     ];
     If[result === $Failed,
       segmentFailure = True;
@@ -1048,7 +1225,7 @@ CHESSNativeFakeDeltaPropagate[
   {
     allNodes,
     allValues,
-    state,
+    N[state, precision],
     {},
     {},
     If[

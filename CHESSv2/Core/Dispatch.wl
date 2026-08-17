@@ -87,6 +87,11 @@ Options[SpectralPropagate] = DeleteDuplicatesBy[
       "NumericalBackend" -> "Mathematica",
       "NativeHandle" -> Automatic,
 
+      (* The C++/FLINT backend works above the user-requested output precision
+         by default.  This protects ill-conditioned collocation solves without
+         changing the Mathematica solver's established Precision semantics. *)
+      "NativeGuardDigits" -> 20,
+
       (* Endpoint skips the large coefficient-by-node WSTP payload and is the
          high-throughput mode for repeated boundary propagation. *)
       "ResultData" -> "Full"
@@ -212,7 +217,12 @@ CHESSRunCanonicalUnified[
   If[
     resolvedBackend === "Native",
     CHESSRunNativeCanonicalUnified[
-      evaluator, systemSpec, boundary, interval, canonicalRules, segments,
+      evaluator, systemSpec, boundary, interval,
+      Join[
+        canonicalRules,
+        CHESSFilterOptionRules[rules, {"NativeGuardDigits" -> 20}]
+      ],
+      segments,
       regularizedEndpoints, nativeHandle, resultData
     ],
     If[segments === 1,
@@ -233,7 +243,7 @@ CHESSRunCanonicalUnified[
 CHESSRunNonCanonicalUnified[
   specs_, boundary_?MatrixQ, interval_, rules_List, segments_Integer,
   regularizedEndpoints_, endpointData_, numericalBackend_, nativeHandle_
-] := Module[{normalized, nonCanonicalRules, resolvedBackend},
+] := Module[{normalized, nonCanonicalRules, nativeRules, resolvedBackend},
   resolvedBackend = Replace[
     numericalBackend,
     Automatic :> If[AssociationQ[nativeHandle], "Native", "Mathematica"]
@@ -275,8 +285,12 @@ CHESSRunNonCanonicalUnified[
       Message[SpectralPropagate::nativeunsupported];
       Return[$Failed]
     ];
+    nativeRules = Join[
+      nonCanonicalRules,
+      CHESSFilterOptionRules[rules, {"NativeGuardDigits" -> 20}]
+    ];
     Return @ CHESSNativePolynomialPropagate[
-      specs, boundary, interval, nonCanonicalRules, nativeHandle,
+      specs, boundary, interval, nativeRules, nativeHandle,
       CHESSNativeOptionValue[rules, "ResultData", "Full"]
     ]
   ];
@@ -296,7 +310,7 @@ CHESSRunFakeDeltaUnified[
   regularizedEndpoints_, endpointData_, deltaOrder_, deltaTolerance_,
   maxDeltaOrder_, numericalBackend_, nativeHandle_, resultData_
 ] := Module[
-  {canonicalRules, resolvedBackend, precision, resolvedTolerance},
+  {canonicalRules, nativeRules, resolvedBackend, precision, resolvedTolerance},
   (* EndpointData is meaningful only together with the non-canonical endpoint
      construction.  Silently dropping it here would be especially dangerous:
      the numerical answer could look plausible while ignoring user-supplied
@@ -339,8 +353,12 @@ CHESSRunFakeDeltaUnified[
       Message[CHESSFakeDeltaPropagate::tolerance, deltaTolerance];
       Return[$Failed]
     ];
+    nativeRules = Join[
+      canonicalRules,
+      CHESSFilterOptionRules[rules, {"NativeGuardDigits" -> 20}]
+    ];
     CHESSNativeFakeDeltaPropagate[
-      b0, boundary, interval, canonicalRules, deltaOrder,
+      b0, boundary, interval, nativeRules, deltaOrder,
       resolvedTolerance, maxDeltaOrder, segments, nativeHandle, resultData
     ],
     CHESSFakeDeltaPropagate[
