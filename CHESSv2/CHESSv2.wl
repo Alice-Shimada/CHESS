@@ -10,6 +10,7 @@
     Core/Canonical.wl     original canonical CHESS implementation;
     Core/NonCanonical.wl  original polynomial-epsilon extension;
     Core/FLINTBatchEvaluation.wl  FORM/FLINT batch evaluation protocol;
+    Core/NativeMatrixAdapter.wl   Mathematica and FORM/FLINT input adapters;
     Core/NativeBackend.wl optional C++ regular-point propagation;
     Core/FakeDelta.wl     B0-only auxiliary-delta propagation and order choice;
     Core/Dispatch.wl      the single public SpectralPropagate entry point.
@@ -34,6 +35,7 @@ Module[{packageDirectory, moduleFiles, moduleFile, loaded},
     {"Core", "NonCanonical.wl"},
     {"Core", "MatrixAdapters.wl"},
     {"Core", "FLINTBatchEvaluation.wl"},
+    {"Core", "NativeMatrixAdapter.wl"},
     {"Core", "NativeBackend.wl"},
     {"Core", "FakeDelta.wl"},
     {"Core", "Dispatch.wl"}

@@ -16,7 +16,7 @@ Get[FileNameJoin[{testRoot, "CHESSv2.wl"}]];
 
 failures = {};
 assertionCount = 0;
-expectedAssertionCount = 24;
+expectedAssertionCount = 25;
 assert[name_String, condition_] := If[
   assertionCount++;
   TrueQ[condition],
@@ -566,6 +566,43 @@ assert[
   mixedOrphanEndpointData === $Failed &&
   mixedSegmentedEndpoint === $Failed &&
   mixedOutsideEndpoint === $Failed
+];
+
+(* User-facing conversion helpers must produce the same polynomial batch
+   contract from function lists and from explicit path-variable expressions. *)
+ClearAll[adapterB0, adapterB1, adapterFailure, adapterT];
+adapterB0[x_, p_] := N[{{1/3 + x/10}}, p];
+adapterB1[x_, p_] := N[{{2/5 - x/20}}, p];
+adapterFailure[x_, p_] := If[x > 2/5, IdentityMatrix[2], N[{{1}}, p]];
+functionAdapter = CHESSNativeMatrixAdapter[{adapterB0, adapterB1}, 1];
+expressionAdapter = CHESSNativeMatrixAdapter[
+  {{{1/3 + adapterT/10}}, {{2/5 - adapterT/20}}}, adapterT, 1
+];
+functionAdapterValues = CHESSNodeEvaluatorBatch[functionAdapter][
+  {1/4, 1/2}, 60, 1
+];
+expressionAdapterValues = CHESSNodeEvaluatorBatch[expressionAdapter][
+  {1/4, 1/2}, 60, 1
+];
+badExpressionAdapter = Quiet @ CHESSNativeMatrixAdapter[
+  {{{1}}, IdentityMatrix[2]}, adapterT, 1
+];
+failingAdapter = CHESSNativeMatrixAdapter[{adapterFailure}, 1];
+failingAdapterValues = Quiet @ CHESSNodeEvaluatorBatch[failingAdapter][
+  {1/4, 1/2}, 60, 1
+];
+badFLINTAdapter = Quiet @ CHESSNativeFLINTMatrixAdapter[
+  "missing", "missing", Identity, Identity, 0
+];
+assert[
+  "native-matrix-adapter-function-and-expression-formats",
+  CHESSNodeEvaluatorQ[functionAdapter] &&
+  CHESSNodeEvaluatorQ[expressionAdapter] &&
+  functionAdapterValues =!= $Failed &&
+  expressionAdapterValues =!= $Failed &&
+  maxError[functionAdapterValues, expressionAdapterValues] < 10^-55 &&
+  badExpressionAdapter === $Failed && failingAdapterValues === $Failed &&
+  badFLINTAdapter === $Failed
 ];
 
 hashHex[file_] := IntegerString[FileHash[file, "SHA256"], 16, 64];

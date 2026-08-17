@@ -296,7 +296,7 @@ assert[
 (* A genuine B0+B1+B2 system exercises the direct active-support LU.  The
    complex B0 entry forces the FLINT nfloat-complex factorization; no fake-delta
    expansion is involved. *)
-ClearAll[mixedB0, mixedB1, mixedB2, mixedScalar, mixedBatch];
+ClearAll[mixedB0, mixedB1, mixedB2];
 mixedB0[x_, requestedPrecision_] := N[
   {
     {1/5 + x/20, 0, I (1 + x)/11},
@@ -313,14 +313,9 @@ mixedB2[x_, requestedPrecision_] := N[
   {{0, 1/19, 0}, {-1/23, 0, 1/41}, {1/43, 0, 0}},
   requestedPrecision
 ];
-mixedScalar[x_, requestedPrecision_] := {
-  mixedB0[x, requestedPrecision],
-  mixedB1[x, requestedPrecision],
-  mixedB2[x, requestedPrecision]
-};
-mixedBatch[points_, requestedPrecision_, threads_] :=
-  mixedScalar[#, requestedPrecision] & /@ points;
-mixedEvaluator = CHESSNodeEvaluator[mixedScalar, mixedBatch];
+mixedEvaluator = CHESSNativeMatrixAdapter[
+  {mixedB0, mixedB1, mixedB2}, 3
+];
 mixedBoundary = N[
   {{1, 1/3, 0, 0}, {-2, 0, 1/5, 0}, {1/7, -1/9, 0, 1/11}},
   precision

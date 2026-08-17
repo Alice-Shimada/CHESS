@@ -83,6 +83,50 @@ SpectralPropagate[
 ]
 ```
 
+## Native matrix adapters
+
+`Core/NativeMatrixAdapter.wl` provides two independent helpers. Both return a
+`CHESSNodeEvaluator` accepted by the same `SpectralPropagate` call.
+
+For an existing Wolfram coefficient list, use:
+
+```wl
+nativeEvaluator = CHESSNativeMatrixAdapter[{B0, B1, B2}, dimension];
+
+SpectralPropagate[
+  nativeEvaluator, boundary, {0, 1},
+  "EpsilonDegree" -> 2,
+  "NumericalBackend" -> "Native"
+]
+```
+
+The list entries may be constant matrices or any evaluator convention described
+above. This form accelerates transport, but the node matrices are still
+evaluated in Mathematica. If the matrices are explicit expressions in one path
+variable, first `Clear[t]`, then use
+`CHESSNativeMatrixAdapter[{B0expr,B1expr,...}, t, dimension]`.
+The built-in Wolfram batch wrapper maps nodes serially; a user evaluator may
+implement its own parallelism when useful.
+
+To move large node expression evaluation to FORM/FLINT, use:
+
+```wl
+nativeEvaluator = CHESSNativeFLINTMatrixAdapter[
+  evaluatorExecutable,
+  preparedSLP,
+  coordinateFunction,
+  assembleFunction,
+  dimension
+];
+```
+
+`coordinateFunction[point,precision]` returns one real SLP input row.
+`assembleFunction[point,values,precision]` converts one FLINT output row into
+`{B0,B1,...}`. The helper batches all requested nodes in one FLINT process.
+If the executable or SLP file is replaced at the same path, prepare a new
+Native handle; file contents are external state and are not part of the Wolfram
+definition fingerprint.
+
 ## FORM/FLINT expression evaluation
 
 `Core/FLINTBatchEvaluation.wl` exposes:
@@ -224,6 +268,7 @@ Core/NonCanonical.wl          polynomial-epsilon numerical core
 Core/MatrixAdapters.wl        evaluator normalization and dimension checks
 Core/FakeDelta.wl             B0-only auxiliary-delta logic
 Core/FLINTBatchEvaluation.wl  FORM/FLINT batch protocol
+Core/NativeMatrixAdapter.wl   Wolfram and FORM/FLINT matrix input helpers
 Core/NativeBackend.wl         Wolfram/native interface and handle management
 Core/Dispatch.wl              unified SpectralPropagate routing
 Native/Propagation/           C++/FLINT propagation backend

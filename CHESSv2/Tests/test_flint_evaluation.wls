@@ -110,6 +110,30 @@ If[StringQ[evaluator] && StringQ[slp] &&
     AssociationQ[flintResult] && flintResult["PointCount"] === 1 &&
     flintResult["ValueCount"] > 0 && Dimensions[flintResult["Values"]] ===
       {1, flintResult["ValueCount"]}
+  ];
+  ClearAll[adapterCoordinates, adapterAssembly];
+  adapterCoordinates[point_, precision_] :=
+    N[{1 + point, 2, 3, 4, 5, 6, 7}, precision];
+  adapterAssembly[point_, values_, precision_] :=
+    N[{{{values[[1]]}}, {{values[[2]]}}}, precision];
+  flintAdapter = CHESSNativeFLINTMatrixAdapter[
+    evaluator, slp, adapterCoordinates, adapterAssembly, 1
+  ];
+  flintAdapterValues = CHESSNodeEvaluatorBatch[flintAdapter][
+    {0, 1/10}, 40, 2
+  ];
+  badAssembly[point_, values_, precision_] := {IdentityMatrix[2]};
+  badFlintAdapter = CHESSNativeFLINTMatrixAdapter[
+    evaluator, slp, adapterCoordinates, badAssembly, 1
+  ];
+  badFlintAdapterValues = Quiet @ CHESSNodeEvaluatorBatch[badFlintAdapter][
+    {0}, 40, 1
+  ];
+  assert[
+    "flint-native-matrix-adapter",
+    CHESSNodeEvaluatorQ[flintAdapter] && ListQ[flintAdapterValues] &&
+    Dimensions[flintAdapterValues] === {2, 2, 1, 1} &&
+    badFlintAdapterValues === $Failed
   ],
   Print["SKIP: flint-existing-slp-batch-smoke (set CHESSV2_FLINT_EVALUATOR and CHESSV2_FLINT_SLP)"]
 ];
