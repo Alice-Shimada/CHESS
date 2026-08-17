@@ -19,17 +19,17 @@ namespace {
 
 class Backend {
 public:
-    explicit Backend(const std::string& setup_file) { load(setup_file); }
+    explicit Backend(const std::string& setupFile) { Load(setupFile); }
 
     // Propagate one or more independent boundary columns through the same
     // cached collocation system.  Each column has `layers` sequential
     // fake-parameter/epsilon coefficients.  Keeping physical columns in one
     // request avoids repeating setup, WSTP parsing, and matrix storage for the
     // B0-only route used by CHESSv2.
-    std::string run(
-        const std::string& boundary_text, int layers, int columns,
-        bool cache_states) {
-        if (polynomial_mode_) {
+    std::string Run(
+        const std::string& boundaryText, int layers, int columns,
+        bool shouldCacheStates) {
+        if (polynomialMode) {
             throw std::runtime_error(
                 "sequential run requested for a polynomial backend"
             );
@@ -37,46 +37,46 @@ public:
         if (layers <= 0) throw std::runtime_error("layers must be positive");
         if (columns <= 0) throw std::runtime_error("columns must be positive");
 
-        std::istringstream input(boundary_text);
-        int input_dimension = 0;
-        int input_layers = 0;
-        int input_columns = 0;
-        input >> input_dimension >> input_layers >> input_columns;
-        if (!input || input_dimension != dimension_ || input_layers != layers ||
-            input_columns != columns) {
+        std::istringstream input(boundaryText);
+        int inputDimension = 0;
+        int inputLayers = 0;
+        int inputColumns = 0;
+        input >> inputDimension >> inputLayers >> inputColumns;
+        if (!input || inputDimension != dimension || inputLayers != layers ||
+            inputColumns != columns) {
             throw std::runtime_error("boundary dimensions do not match cached backend");
         }
 
         std::vector<Complex> boundary(
-            static_cast<std::size_t>(dimension_) * layers * columns);
-        for (Complex& value : boundary) value = read_complex(input);
+            static_cast<std::size_t>(dimension) * layers * columns);
+        for (Complex& value : boundary) value = ReadComplex(input);
         if (!input) throw std::runtime_error("failed to parse boundary coefficients");
 
-        const bool boundary_is_real = std::all_of(
+        const bool boundaryIsReal = std::all_of(
             boundary.begin(), boundary.end(),
             [](const Complex& value) { return value.imag() == 0; });
-        const bool system_is_real = std::all_of(
-            operators_.begin(), operators_.end(),
-            [](const SparseOperator& op) { return op.real_only; });
+        const bool systemIsReal = std::all_of(
+            operators.begin(), operators.end(),
+            [](const SparseOperator& op) { return op.realOnly; });
 
         const auto start = std::chrono::steady_clock::now();
-        cache_states_ = cache_states;
-        if (boundary_is_real && system_is_real) {
-            propagate_real(boundary, layers, columns);
+        cacheStates = shouldCacheStates;
+        if (boundaryIsReal && systemIsReal) {
+            PropagateReal(boundary, layers, columns);
         } else {
-            propagate(boundary, layers, columns);
+            Propagate(boundary, layers, columns);
         }
         const double seconds = std::chrono::duration<double>(
             std::chrono::steady_clock::now() - start).count();
 
         std::ostringstream output;
         output << "CHESSNATIVE1 " << std::setprecision(17) << seconds << ' '
-               << layers << ' ' << columns << ' ' << dimension_;
-        output << std::scientific << std::setprecision(precision_);
+               << layers << ' ' << columns << ' ' << dimension;
+        output << std::scientific << std::setprecision(precision);
         for (int column = 0; column < columns; ++column) {
             for (int layer = 0; layer < layers; ++layer) {
-                for (int component = 0; component < dimension_; ++component) {
-                    write_endpoint_value(output, column, layer, component);
+                for (int component = 0; component < dimension; ++component) {
+                    WriteEndpointValue(output, column, layer, component);
                 }
             }
         }
@@ -86,10 +86,10 @@ public:
     // Direct mixed-polynomial transport.  B0 has already been incorporated
     // into one active-support collocation LU; Bp with p>0 only builds the RHS
     // from lower epsilon coefficients.  No auxiliary-delta expansion occurs.
-    std::string run_polynomial(
-        const std::string& boundary_text, int layers, int columns,
-        bool cache_states) {
-        if (!polynomial_mode_) {
+    std::string RunPolynomial(
+        const std::string& boundaryText, int layers, int columns,
+        bool shouldCacheStates) {
+        if (!polynomialMode) {
             throw std::runtime_error(
                 "polynomial run requested for a sequential backend"
             );
@@ -98,59 +98,59 @@ public:
             throw std::runtime_error("polynomial boundary dimensions are empty");
         }
 
-        std::istringstream input(boundary_text);
-        int input_dimension = 0;
-        int input_layers = 0;
-        int input_columns = 0;
-        input >> input_dimension >> input_layers >> input_columns;
-        if (!input || input_dimension != dimension_ || input_layers != layers ||
-            input_columns != columns) {
+        std::istringstream input(boundaryText);
+        int inputDimension = 0;
+        int inputLayers = 0;
+        int inputColumns = 0;
+        input >> inputDimension >> inputLayers >> inputColumns;
+        if (!input || inputDimension != dimension || inputLayers != layers ||
+            inputColumns != columns) {
             throw std::runtime_error(
                 "polynomial boundary dimensions do not match cached backend"
             );
         }
         std::vector<Complex> boundary(
-            static_cast<std::size_t>(dimension_) * layers * columns
+            static_cast<std::size_t>(dimension) * layers * columns
         );
-        for (Complex& value : boundary) value = read_complex(input);
+        for (Complex& value : boundary) value = ReadComplex(input);
         if (!input) {
             throw std::runtime_error("failed to parse polynomial boundary");
         }
 
         const auto start = std::chrono::steady_clock::now();
-        cache_states_ = cache_states;
-        propagate_polynomial(boundary, layers, columns);
+        cacheStates = shouldCacheStates;
+        PropagatePolynomial(boundary, layers, columns);
         const double seconds = std::chrono::duration<double>(
             std::chrono::steady_clock::now() - start
         ).count();
 
         std::ostringstream output;
         output << "CHESSPOLY1 " << std::setprecision(17) << seconds << ' '
-               << layers << ' ' << columns << ' ' << dimension_ << ' '
-               << active_.size();
-        output << std::scientific << std::setprecision(precision_);
+               << layers << ' ' << columns << ' ' << dimension << ' '
+               << active.size();
+        output << std::scientific << std::setprecision(precision);
         for (int column = 0; column < columns; ++column) {
             for (int layer = 0; layer < layers; ++layer) {
-                for (int component = 0; component < dimension_; ++component) {
-                    write_endpoint_value(output, column, layer, component);
+                for (int component = 0; component < dimension; ++component) {
+                    WriteEndpointValue(output, column, layer, component);
                 }
             }
         }
         return output.str();
     }
 
-    // Serialize data cached by the most recent run without repeating the
+    // Serialize data cached by the most recent Run without repeating the
     // propagation.  mode=0 returns every coefficient at every node (canonical
-    // output); mode=1 sums coefficients 0..selected_order at each node (the
+    // output); mode=1 sums coefficients 0..selectedOrder at each node (the
     // physical delta=1 output needed by B0-only propagation).
-    std::string fetch(int mode, int selected_order) const {
-        if (last_layers_ <= 0 || last_columns_ <= 0) {
+    std::string Fetch(int mode, int selectedOrder) const {
+        if (lastLayers <= 0 || lastColumns <= 0) {
             throw std::runtime_error("no cached propagation result");
         }
-        if (!cache_states_) {
+        if (!cacheStates) {
             throw std::runtime_error("the last propagation did not cache node states");
         }
-        if (selected_order < 0 || selected_order >= last_layers_) {
+        if (selectedOrder < 0 || selectedOrder >= lastLayers) {
             throw std::runtime_error("selected order is outside cached layers");
         }
         if (mode != 0 && mode != 1) {
@@ -158,27 +158,27 @@ public:
         }
 
         std::ostringstream output;
-        output << "CHESSFETCH1 " << mode << ' ' << selected_order << ' '
-               << last_layers_ << ' ' << last_columns_ << ' ' << dimension_ << ' '
-               << node_count_;
-        output << std::scientific << std::setprecision(precision_);
+        output << "CHESSFETCH1 " << mode << ' ' << selectedOrder << ' '
+               << lastLayers << ' ' << lastColumns << ' ' << dimension << ' '
+               << nodeCount;
+        output << std::scientific << std::setprecision(precision);
 
         if (mode == 0) {
-            for (int column = 0; column < last_columns_; ++column) {
-                for (int layer = 0; layer <= selected_order; ++layer) {
-                    for (int node = 0; node < node_count_; ++node) {
-                        for (int component = 0; component < dimension_; ++component) {
-                            write_cached_value(output, column, layer, component, node);
+            for (int column = 0; column < lastColumns; ++column) {
+                for (int layer = 0; layer <= selectedOrder; ++layer) {
+                    for (int node = 0; node < nodeCount; ++node) {
+                        for (int component = 0; component < dimension; ++component) {
+                            WriteCachedValue(output, column, layer, component, node);
                         }
                     }
                 }
             }
         } else {
-            for (int column = 0; column < last_columns_; ++column) {
-                for (int node = 0; node < node_count_; ++node) {
-                    for (int component = 0; component < dimension_; ++component) {
-                        write_cached_sum(
-                            output, column, selected_order, component, node);
+            for (int column = 0; column < lastColumns; ++column) {
+                for (int node = 0; node < nodeCount; ++node) {
+                    for (int component = 0; component < dimension; ++component) {
+                        WriteCachedSum(
+                            output, column, selectedOrder, component, node);
                     }
                 }
             }
@@ -187,164 +187,164 @@ public:
     }
 
 private:
-    int precision_ = 0;
-    int dimension_ = 0;
-    int node_count_ = 0;
-    std::vector<Real> lu_;
-    std::vector<int> pivots_;
-    std::vector<SparseOperator> operators_;
-    bool polynomial_mode_ = false;
-    int polynomial_degree_ = 0;
-    std::vector<std::vector<SparseOperator>> positive_operators_;
-    std::vector<int> active_;
-    std::vector<int> inactive_;
-    std::unique_ptr<FlintCoupledSolver> coupled_solver_;
-    int last_layers_ = 0;
-    int last_columns_ = 0;
-    bool last_result_is_real_ = false;
-    bool cache_states_ = false;
-    std::vector<Real> last_real_states_;
-    std::vector<Complex> last_complex_states_;
-    std::vector<Real> last_real_endpoints_;
-    std::vector<Complex> last_complex_endpoints_;
+    int precision = 0;
+    int dimension = 0;
+    int nodeCount = 0;
+    std::vector<Real> lu;
+    std::vector<int> pivots;
+    std::vector<SparseOperator> operators;
+    bool polynomialMode = false;
+    int polynomialDegree = 0;
+    std::vector<std::vector<SparseOperator>> positiveOperators;
+    std::vector<int> active;
+    std::vector<int> inactive;
+    std::unique_ptr<FlintCoupledSolver> coupledSolver;
+    int lastLayers = 0;
+    int lastColumns = 0;
+    bool lastResultIsReal = false;
+    bool cacheStates = false;
+    std::vector<Real> lastRealStates;
+    std::vector<Complex> lastComplexStates;
+    std::vector<Real> lastRealEndpoints;
+    std::vector<Complex> lastComplexEndpoints;
 
-    static Complex read_complex(std::istream& input) {
-        std::string real_text;
-        std::string imag_text;
-        input >> real_text >> imag_text;
+    static Complex ReadComplex(std::istream& input) {
+        std::string realText;
+        std::string imagText;
+        input >> realText >> imagText;
         if (!input) throw std::runtime_error("invalid complex number in backend input");
-        return Complex(Real(real_text), Real(imag_text));
+        return Complex(Real(realText), Real(imagText));
     }
 
-    std::size_t state_index(
+    std::size_t StateIndex(
         int column, int layer, int component, int node) const {
-        return (((static_cast<std::size_t>(column) * last_layers_ + layer) *
-                 dimension_ + component) * node_count_ + node);
+        return (((static_cast<std::size_t>(column) * lastLayers + layer) *
+                 dimension + component) * nodeCount + node);
     }
 
-    std::size_t endpoint_index(
+    std::size_t EndpointIndex(
         int column, int layer, int component) const {
-        return ((static_cast<std::size_t>(column) * last_layers_ + layer) *
-                dimension_ + component);
+        return ((static_cast<std::size_t>(column) * lastLayers + layer) *
+                dimension + component);
     }
 
-    void write_endpoint_value(
+    void WriteEndpointValue(
         std::ostringstream& output, int column, int layer,
         int component) const {
-        const std::size_t index = endpoint_index(column, layer, component);
-        if (last_result_is_real_) {
-            output << ' ' << last_real_endpoints_.at(index) << " 0";
+        const std::size_t index = EndpointIndex(column, layer, component);
+        if (lastResultIsReal) {
+            output << ' ' << lastRealEndpoints.at(index) << " 0";
         } else {
-            const Complex& value = last_complex_endpoints_.at(index);
+            const Complex& value = lastComplexEndpoints.at(index);
             output << ' ' << value.real() << ' ' << value.imag();
         }
     }
 
-    void write_cached_value(
+    void WriteCachedValue(
         std::ostringstream& output, int column, int layer,
         int component, int node) const {
-        const std::size_t index = state_index(column, layer, component, node);
-        if (last_result_is_real_) {
-            output << ' ' << last_real_states_.at(index) << " 0";
+        const std::size_t index = StateIndex(column, layer, component, node);
+        if (lastResultIsReal) {
+            output << ' ' << lastRealStates.at(index) << " 0";
         } else {
-            const Complex& value = last_complex_states_.at(index);
+            const Complex& value = lastComplexStates.at(index);
             output << ' ' << value.real() << ' ' << value.imag();
         }
     }
 
-    void write_cached_sum(
-        std::ostringstream& output, int column, int selected_order,
+    void WriteCachedSum(
+        std::ostringstream& output, int column, int selectedOrder,
         int component, int node) const {
-        if (last_result_is_real_) {
+        if (lastResultIsReal) {
             Real sum(0);
-            for (int layer = 0; layer <= selected_order; ++layer) {
-                sum += last_real_states_.at(
-                    state_index(column, layer, component, node));
+            for (int layer = 0; layer <= selectedOrder; ++layer) {
+                sum += lastRealStates.at(
+                    StateIndex(column, layer, component, node));
             }
             output << ' ' << sum << " 0";
         } else {
             Complex sum(0);
-            for (int layer = 0; layer <= selected_order; ++layer) {
-                sum += last_complex_states_.at(
-                    state_index(column, layer, component, node));
+            for (int layer = 0; layer <= selectedOrder; ++layer) {
+                sum += lastComplexStates.at(
+                    StateIndex(column, layer, component, node));
             }
             output << ' ' << sum.real() << ' ' << sum.imag();
         }
     }
 
-    void load(const std::string& setup_file) {
-        std::ifstream input(setup_file);
+    void Load(const std::string& setupFile) {
+        std::ifstream input(setupFile);
         if (!input) throw std::runtime_error("cannot open CHESS C++ setup file");
 
         std::string magic;
-        input >> magic >> precision_ >> dimension_ >> node_count_;
+        input >> magic >> precision >> dimension >> nodeCount;
         if (!input || (magic != "CHESSCPP1" && magic != "CHESSCPP2") ||
-            precision_ <= 0 ||
-            dimension_ <= 0 || node_count_ < 2) {
+            precision <= 0 ||
+            dimension <= 0 || nodeCount < 2) {
             throw std::runtime_error("invalid CHESS C++ setup header");
         }
-        polynomial_mode_ = magic == "CHESSCPP2";
+        polynomialMode = magic == "CHESSCPP2";
 
-        Real::default_precision(precision_);
-        Complex::default_precision(precision_);
-        Real::thread_default_precision(precision_);
-        Complex::thread_default_precision(precision_);
+        Real::default_precision(precision);
+        Complex::default_precision(precision);
+        Real::thread_default_precision(precision);
+        Complex::thread_default_precision(precision);
 
-        lu_.resize(static_cast<std::size_t>(node_count_) * node_count_);
-        for (Real& entry : lu_) {
-            const Complex value = read_complex(input);
+        lu.resize(static_cast<std::size_t>(nodeCount) * nodeCount);
+        for (Real& entry : lu) {
+            const Complex value = ReadComplex(input);
             if (value.imag() != 0) {
                 throw std::runtime_error("scalar collocation matrix must be real");
             }
             entry = value.real();
         }
 
-        if (!polynomial_mode_) {
-            operators_.resize(node_count_ - 1);
-            for (SparseOperator& op : operators_) read_operator(input, op);
+        if (!polynomialMode) {
+            operators.resize(nodeCount - 1);
+            for (SparseOperator& op : operators) ReadOperator(input, op);
         } else {
-            int active_count = 0;
-            int flint_bits = 0;
-            input >> polynomial_degree_ >> active_count >> flint_bits;
-            if (!input || polynomial_degree_ <= 0 || active_count <= 0 ||
-                active_count > dimension_) {
+            int activeCount = 0;
+            int flintBits = 0;
+            input >> polynomialDegree >> activeCount >> flintBits;
+            if (!input || polynomialDegree <= 0 || activeCount <= 0 ||
+                activeCount > dimension) {
                 throw std::runtime_error("invalid polynomial setup header");
             }
-            active_.resize(active_count);
-            std::vector<bool> active_mask(dimension_, false);
-            for (int& component : active_) {
+            active.resize(activeCount);
+            std::vector<bool> activeMask(dimension, false);
+            for (int& component : active) {
                 input >> component;
-                if (!input || component < 0 || component >= dimension_ ||
-                    active_mask[component]) {
+                if (!input || component < 0 || component >= dimension ||
+                    activeMask[component]) {
                     throw std::runtime_error("invalid active component list");
                 }
-                active_mask[component] = true;
+                activeMask[component] = true;
             }
-            for (int component = 0; component < dimension_; ++component) {
-                if (!active_mask[component]) inactive_.push_back(component);
+            for (int component = 0; component < dimension; ++component) {
+                if (!activeMask[component]) inactive.push_back(component);
             }
-            std::vector<SparseOperator> b0_operators(node_count_ - 1);
-            for (SparseOperator& op : b0_operators) read_operator(input, op);
-            coupled_solver_ = std::make_unique<FlintCoupledSolver>(
-                precision_, node_count_, dimension_, active_, lu_,
-                b0_operators, flint_bits
+            std::vector<SparseOperator> b0Operators(nodeCount - 1);
+            for (SparseOperator& op : b0Operators) ReadOperator(input, op);
+            coupledSolver = std::make_unique<FlintCoupledSolver>(
+                precision, nodeCount, dimension, active, lu,
+                b0Operators, flintBits
             );
 
-            positive_operators_.resize(polynomial_degree_);
-            for (auto& operators : positive_operators_) {
-                operators.resize(node_count_ - 1);
-                for (SparseOperator& op : operators) read_operator(input, op);
+            positiveOperators.resize(polynomialDegree);
+            for (auto& operatorSet : positiveOperators) {
+                operatorSet.resize(nodeCount - 1);
+                for (SparseOperator& op : operatorSet) ReadOperator(input, op);
             }
         }
         if (!input) throw std::runtime_error("truncated CHESS C++ setup file");
 
-        factorize();
+        Factorize();
     }
 
-    void read_operator(std::istream& input, SparseOperator& op) const {
-        int nonzero_count = 0;
-        input >> nonzero_count;
-        if (!input || nonzero_count < 0) {
+    void ReadOperator(std::istream& input, SparseOperator& op) const {
+        int nonzeroCount = 0;
+        input >> nonzeroCount;
+        if (!input || nonzeroCount < 0) {
             throw std::runtime_error("invalid sparse-operator header");
         }
 
@@ -354,16 +354,16 @@ private:
             Complex value;
         };
         std::vector<Entry> entries;
-        entries.reserve(nonzero_count);
-        op.row_ptr.assign(dimension_ + 1, 0);
+        entries.reserve(nonzeroCount);
+        op.rowPtr.assign(dimension + 1, 0);
 
-        for (int index = 0; index < nonzero_count; ++index) {
+        for (int index = 0; index < nonzeroCount; ++index) {
             int row = 0;
             int column = 0;
             input >> row >> column;
-            Complex value = read_complex(input);
-            if (!input || row < 0 || row >= dimension_ ||
-                column < 0 || column >= dimension_) {
+            Complex value = ReadComplex(input);
+            if (!input || row < 0 || row >= dimension ||
+                column < 0 || column >= dimension) {
                 throw std::runtime_error("invalid sparse-operator entry");
             }
             entries.push_back({row, column, std::move(value)});
@@ -374,208 +374,208 @@ private:
                    std::pair<int, int>(right.row, right.column);
         });
         for (const Entry& entry : entries) {
-            ++op.row_ptr[entry.row + 1];
-            if (entry.value.imag() != 0) op.real_only = false;
+            ++op.rowPtr[entry.row + 1];
+            if (entry.value.imag() != 0) op.realOnly = false;
         }
-        for (int row = 0; row < dimension_; ++row) {
-            op.row_ptr[row + 1] += op.row_ptr[row];
+        for (int row = 0; row < dimension; ++row) {
+            op.rowPtr[row + 1] += op.rowPtr[row];
         }
 
         op.column.reserve(entries.size());
-        if (op.real_only) {
-            op.real_value.reserve(entries.size());
+        if (op.realOnly) {
+            op.realValue.reserve(entries.size());
             for (const Entry& entry : entries) {
                 op.column.push_back(entry.column);
-                op.real_value.push_back(entry.value.real());
+                op.realValue.push_back(entry.value.real());
             }
         } else {
-            op.complex_value.reserve(entries.size());
+            op.complexValue.reserve(entries.size());
             for (const Entry& entry : entries) {
                 op.column.push_back(entry.column);
-                op.complex_value.push_back(entry.value);
+                op.complexValue.push_back(entry.value);
             }
         }
     }
 
-    void factorize() {
-        pivots_.resize(node_count_);
-        for (int column = 0; column < node_count_; ++column) {
+    void Factorize() {
+        pivots.resize(nodeCount);
+        for (int column = 0; column < nodeCount; ++column) {
             int pivot = column;
-            Real largest = abs(lu_[static_cast<std::size_t>(column) * node_count_ + column]);
-            for (int row = column + 1; row < node_count_; ++row) {
-                const Real candidate = abs(lu_[static_cast<std::size_t>(row) * node_count_ + column]);
+            Real largest = abs(lu[static_cast<std::size_t>(column) * nodeCount + column]);
+            for (int row = column + 1; row < nodeCount; ++row) {
+                const Real candidate = abs(lu[static_cast<std::size_t>(row) * nodeCount + column]);
                 if (candidate > largest) {
                     largest = candidate;
                     pivot = row;
                 }
             }
             if (largest == 0) throw std::runtime_error("singular scalar collocation matrix");
-            pivots_[column] = pivot;
+            pivots[column] = pivot;
             if (pivot != column) {
-                for (int j = 0; j < node_count_; ++j) {
-                    std::swap(lu_[static_cast<std::size_t>(column) * node_count_ + j],
-                              lu_[static_cast<std::size_t>(pivot) * node_count_ + j]);
+                for (int j = 0; j < nodeCount; ++j) {
+                    std::swap(lu[static_cast<std::size_t>(column) * nodeCount + j],
+                              lu[static_cast<std::size_t>(pivot) * nodeCount + j]);
                 }
             }
 
-            const Real diagonal = lu_[static_cast<std::size_t>(column) * node_count_ + column];
-            for (int row = column + 1; row < node_count_; ++row) {
-                Real& multiplier = lu_[static_cast<std::size_t>(row) * node_count_ + column];
+            const Real diagonal = lu[static_cast<std::size_t>(column) * nodeCount + column];
+            for (int row = column + 1; row < nodeCount; ++row) {
+                Real& multiplier = lu[static_cast<std::size_t>(row) * nodeCount + column];
                 multiplier /= diagonal;
-                for (int j = column + 1; j < node_count_; ++j) {
-                    lu_[static_cast<std::size_t>(row) * node_count_ + j] -=
-                        multiplier * lu_[static_cast<std::size_t>(column) * node_count_ + j];
+                for (int j = column + 1; j < nodeCount; ++j) {
+                    lu[static_cast<std::size_t>(row) * nodeCount + j] -=
+                        multiplier * lu[static_cast<std::size_t>(column) * nodeCount + j];
                 }
             }
         }
     }
 
-    void solve_many(std::vector<Complex>& right_hand_side) const {
-        const int q = node_count_;
-        if (right_hand_side.size() % q != 0) {
+    void SolveMany(std::vector<Complex>& rightHandSide) const {
+        const int q = nodeCount;
+        if (rightHandSide.size() % q != 0) {
             throw std::runtime_error("scalar RHS has incompatible dimensions");
         }
-        const int n = static_cast<int>(right_hand_side.size() / q);
+        const int n = static_cast<int>(rightHandSide.size() / q);
 
 #pragma omp parallel
         {
-            Real::thread_default_precision(precision_);
-            Complex::thread_default_precision(precision_);
+            Real::thread_default_precision(precision);
+            Complex::thread_default_precision(precision);
 #pragma omp for schedule(static)
             for (int component = 0; component < n; ++component) {
-                Complex* vector = right_hand_side.data() + static_cast<std::size_t>(component) * q;
+                Complex* vector = rightHandSide.data() + static_cast<std::size_t>(component) * q;
                 for (int column = 0; column < q; ++column) {
-                    if (pivots_[column] != column) std::swap(vector[column], vector[pivots_[column]]);
+                    if (pivots[column] != column) std::swap(vector[column], vector[pivots[column]]);
                 }
                 for (int row = 1; row < q; ++row) {
                     for (int column = 0; column < row; ++column) {
-                        vector[row] -= lu_[static_cast<std::size_t>(row) * q + column] * vector[column];
+                        vector[row] -= lu[static_cast<std::size_t>(row) * q + column] * vector[column];
                     }
                 }
                 for (int row = q - 1; row >= 0; --row) {
                     for (int column = row + 1; column < q; ++column) {
-                        vector[row] -= lu_[static_cast<std::size_t>(row) * q + column] * vector[column];
+                        vector[row] -= lu[static_cast<std::size_t>(row) * q + column] * vector[column];
                     }
-                    vector[row] /= lu_[static_cast<std::size_t>(row) * q + row];
+                    vector[row] /= lu[static_cast<std::size_t>(row) * q + row];
                 }
             }
         }
     }
 
-    void solve_many_real(std::vector<Real>& right_hand_side) const {
-        const int q = node_count_;
-        if (right_hand_side.size() % q != 0) {
+    void SolveManyReal(std::vector<Real>& rightHandSide) const {
+        const int q = nodeCount;
+        if (rightHandSide.size() % q != 0) {
             throw std::runtime_error("real scalar RHS has incompatible dimensions");
         }
-        const int n = static_cast<int>(right_hand_side.size() / q);
+        const int n = static_cast<int>(rightHandSide.size() / q);
 
 #pragma omp parallel
         {
-            Real::thread_default_precision(precision_);
+            Real::thread_default_precision(precision);
 #pragma omp for schedule(static)
             for (int component = 0; component < n; ++component) {
-                Real* vector = right_hand_side.data() + static_cast<std::size_t>(component) * q;
+                Real* vector = rightHandSide.data() + static_cast<std::size_t>(component) * q;
                 for (int column = 0; column < q; ++column) {
-                    if (pivots_[column] != column) std::swap(vector[column], vector[pivots_[column]]);
+                    if (pivots[column] != column) std::swap(vector[column], vector[pivots[column]]);
                 }
                 for (int row = 1; row < q; ++row) {
                     for (int column = 0; column < row; ++column) {
-                        vector[row] -= lu_[static_cast<std::size_t>(row) * q + column] * vector[column];
+                        vector[row] -= lu[static_cast<std::size_t>(row) * q + column] * vector[column];
                     }
                 }
                 for (int row = q - 1; row >= 0; --row) {
                     for (int column = row + 1; column < q; ++column) {
-                        vector[row] -= lu_[static_cast<std::size_t>(row) * q + column] * vector[column];
+                        vector[row] -= lu[static_cast<std::size_t>(row) * q + column] * vector[column];
                     }
-                    vector[row] /= lu_[static_cast<std::size_t>(row) * q + row];
+                    vector[row] /= lu[static_cast<std::size_t>(row) * q + row];
                 }
             }
         }
     }
 
-    void apply_operator(const SparseOperator& op, int node,
+    void ApplyOperator(const SparseOperator& op, int node,
                         const std::vector<Complex>& previous,
-                        std::vector<Complex>& right_hand_side) const {
-        const int q = node_count_;
-        if (op.real_only) {
-            for (int row = 0; row < dimension_; ++row) {
+                        std::vector<Complex>& rightHandSide) const {
+        const int q = nodeCount;
+        if (op.realOnly) {
+            for (int row = 0; row < dimension; ++row) {
                 Complex sum(0);
-                for (int index = op.row_ptr[row]; index < op.row_ptr[row + 1]; ++index) {
-                    sum += op.real_value[index] *
+                for (int index = op.rowPtr[row]; index < op.rowPtr[row + 1]; ++index) {
+                    sum += op.realValue[index] *
                            previous[static_cast<std::size_t>(op.column[index]) * q + node];
                 }
-                right_hand_side[static_cast<std::size_t>(row) * q + node] = std::move(sum);
+                rightHandSide[static_cast<std::size_t>(row) * q + node] = std::move(sum);
             }
         } else {
-            for (int row = 0; row < dimension_; ++row) {
+            for (int row = 0; row < dimension; ++row) {
                 Complex sum(0);
-                for (int index = op.row_ptr[row]; index < op.row_ptr[row + 1]; ++index) {
-                    sum += op.complex_value[index] *
+                for (int index = op.rowPtr[row]; index < op.rowPtr[row + 1]; ++index) {
+                    sum += op.complexValue[index] *
                            previous[static_cast<std::size_t>(op.column[index]) * q + node];
                 }
-                right_hand_side[static_cast<std::size_t>(row) * q + node] = std::move(sum);
+                rightHandSide[static_cast<std::size_t>(row) * q + node] = std::move(sum);
             }
         }
     }
 
-    void add_operator(const SparseOperator& op, int node,
+    void AddOperator(const SparseOperator& op, int node,
                       const std::vector<Complex>& source,
-                      std::vector<Complex>& right_hand_side) const {
-        const int q = node_count_;
-        if (op.real_only) {
-            for (int row = 0; row < dimension_; ++row) {
+                      std::vector<Complex>& rightHandSide) const {
+        const int q = nodeCount;
+        if (op.realOnly) {
+            for (int row = 0; row < dimension; ++row) {
                 Complex sum(0);
-                for (int index = op.row_ptr[row];
-                     index < op.row_ptr[row + 1]; ++index) {
-                    sum += op.real_value[index] *
+                for (int index = op.rowPtr[row];
+                     index < op.rowPtr[row + 1]; ++index) {
+                    sum += op.realValue[index] *
                            source[static_cast<std::size_t>(
                                op.column[index]) * q + node];
                 }
-                right_hand_side[static_cast<std::size_t>(row) * q + node] +=
+                rightHandSide[static_cast<std::size_t>(row) * q + node] +=
                     sum;
             }
         } else {
-            for (int row = 0; row < dimension_; ++row) {
+            for (int row = 0; row < dimension; ++row) {
                 Complex sum(0);
-                for (int index = op.row_ptr[row];
-                     index < op.row_ptr[row + 1]; ++index) {
-                    sum += op.complex_value[index] *
+                for (int index = op.rowPtr[row];
+                     index < op.rowPtr[row + 1]; ++index) {
+                    sum += op.complexValue[index] *
                            source[static_cast<std::size_t>(
                                op.column[index]) * q + node];
                 }
-                right_hand_side[static_cast<std::size_t>(row) * q + node] +=
+                rightHandSide[static_cast<std::size_t>(row) * q + node] +=
                     sum;
             }
         }
     }
 
-    void propagate_polynomial(
+    void PropagatePolynomial(
         const std::vector<Complex>& boundary, int layers, int columns) {
-        const int q = node_count_;
-        const int n = dimension_;
-        const int active_count = static_cast<int>(active_.size());
+        const int q = nodeCount;
+        const int n = dimension;
+        const int activeCount = static_cast<int>(active.size());
         std::vector<std::vector<Complex>> solved(
             layers, std::vector<Complex>(static_cast<std::size_t>(n) * q)
         );
-        last_layers_ = layers;
-        last_columns_ = columns;
-        last_result_is_real_ = false;
-        last_real_states_.clear();
-        last_real_endpoints_.clear();
-        last_complex_endpoints_.assign(
+        lastLayers = layers;
+        lastColumns = columns;
+        lastResultIsReal = false;
+        lastRealStates.clear();
+        lastRealEndpoints.clear();
+        lastComplexEndpoints.assign(
             static_cast<std::size_t>(columns) * layers * n, Complex(0)
         );
-        if (cache_states_) {
-            last_complex_states_.assign(
+        if (cacheStates) {
+            lastComplexStates.assign(
                 static_cast<std::size_t>(columns) * layers * n * q,
                 Complex(0)
             );
         } else {
-            last_complex_states_.clear();
+            lastComplexStates.clear();
         }
 
-        for (int physical_column = 0; physical_column < columns;
-             ++physical_column) {
+        for (int physicalColumn = 0; physicalColumn < columns;
+             ++physicalColumn) {
             for (auto& layer : solved) {
                 std::fill(layer.begin(), layer.end(), Complex(0));
             }
@@ -584,25 +584,25 @@ private:
                     static_cast<std::size_t>(n) * q, Complex(0)
                 );
                 for (int component = 0; component < n; ++component) {
-                    const std::size_t boundary_index =
-                        (static_cast<std::size_t>(physical_column) * layers +
+                    const std::size_t boundaryIndex =
+                        (static_cast<std::size_t>(physicalColumn) * layers +
                          layer) * n + component;
                     rhs[static_cast<std::size_t>(component) * q] =
-                        boundary[boundary_index];
+                        boundary[boundaryIndex];
                 }
 
 #pragma omp parallel
                 {
-                    Real::thread_default_precision(precision_);
-                    Complex::thread_default_precision(precision_);
+                    Real::thread_default_precision(precision);
+                    Complex::thread_default_precision(precision);
 #pragma omp for schedule(static)
                     for (int node = 1; node < q; ++node) {
-                        const int maximum_power = std::min(
-                            polynomial_degree_, layer
+                        const int maximumPower = std::min(
+                            polynomialDegree, layer
                         );
-                        for (int power = 1; power <= maximum_power; ++power) {
-                            add_operator(
-                                positive_operators_[power - 1][node - 1],
+                        for (int power = 1; power <= maximumPower; ++power) {
+                            AddOperator(
+                                positiveOperators[power - 1][node - 1],
                                 node, solved[layer - power], rhs
                             );
                         }
@@ -612,64 +612,64 @@ private:
                 std::vector<Complex> current(
                     static_cast<std::size_t>(n) * q, Complex(0)
                 );
-                std::vector<Complex> active_rhs(
-                    static_cast<std::size_t>(q) * active_count
+                std::vector<Complex> activeRhs(
+                    static_cast<std::size_t>(q) * activeCount
                 );
                 for (int node = 0; node < q; ++node) {
-                    for (int index = 0; index < active_count; ++index) {
-                        active_rhs[
-                            static_cast<std::size_t>(node) * active_count + index
+                    for (int index = 0; index < activeCount; ++index) {
+                        activeRhs[
+                            static_cast<std::size_t>(node) * activeCount + index
                         ] = rhs[
-                            static_cast<std::size_t>(active_[index]) * q + node
+                            static_cast<std::size_t>(active[index]) * q + node
                         ];
                     }
                 }
-                const std::vector<Complex> active_solution =
-                    coupled_solver_->solve(active_rhs);
+                const std::vector<Complex> activeSolution =
+                    coupledSolver->Solve(activeRhs);
                 for (int node = 0; node < q; ++node) {
-                    for (int index = 0; index < active_count; ++index) {
+                    for (int index = 0; index < activeCount; ++index) {
                         current[
-                            static_cast<std::size_t>(active_[index]) * q + node
-                        ] = active_solution[
-                            static_cast<std::size_t>(node) * active_count + index
+                            static_cast<std::size_t>(active[index]) * q + node
+                        ] = activeSolution[
+                            static_cast<std::size_t>(node) * activeCount + index
                         ];
                     }
                 }
 
-                if (!inactive_.empty()) {
-                    std::vector<Complex> inactive_rhs(
-                        static_cast<std::size_t>(inactive_.size()) * q
+                if (!inactive.empty()) {
+                    std::vector<Complex> inactiveRhs(
+                        static_cast<std::size_t>(inactive.size()) * q
                     );
-                    for (std::size_t index = 0; index < inactive_.size();
+                    for (std::size_t index = 0; index < inactive.size();
                          ++index) {
                         for (int node = 0; node < q; ++node) {
-                            inactive_rhs[index * q + node] = rhs[
-                                static_cast<std::size_t>(inactive_[index]) * q +
+                            inactiveRhs[index * q + node] = rhs[
+                                static_cast<std::size_t>(inactive[index]) * q +
                                 node
                             ];
                         }
                     }
-                    solve_many(inactive_rhs);
-                    for (std::size_t index = 0; index < inactive_.size();
+                    SolveMany(inactiveRhs);
+                    for (std::size_t index = 0; index < inactive.size();
                          ++index) {
                         for (int node = 0; node < q; ++node) {
                             current[
-                                static_cast<std::size_t>(inactive_[index]) * q +
+                                static_cast<std::size_t>(inactive[index]) * q +
                                 node
-                            ] = inactive_rhs[index * q + node];
+                            ] = inactiveRhs[index * q + node];
                         }
                     }
                 }
 
                 solved[layer] = current;
                 for (int component = 0; component < n; ++component) {
-                    last_complex_endpoints_[endpoint_index(
-                        physical_column, layer, component
+                    lastComplexEndpoints[EndpointIndex(
+                        physicalColumn, layer, component
                     )] = current[static_cast<std::size_t>(component) * q + q - 1];
-                    if (cache_states_) {
+                    if (cacheStates) {
                         for (int node = 0; node < q; ++node) {
-                            last_complex_states_[state_index(
-                                physical_column, layer, component, node
+                            lastComplexStates[StateIndex(
+                                physicalColumn, layer, component, node
                             )] = current[
                                 static_cast<std::size_t>(component) * q + node
                             ];
@@ -680,59 +680,59 @@ private:
         }
     }
 
-    void propagate(
+    void Propagate(
         const std::vector<Complex>& boundary, int layers, int columns) {
-        const int q = node_count_;
-        const int n = dimension_;
+        const int q = nodeCount;
+        const int n = dimension;
         std::vector<Complex> previous(static_cast<std::size_t>(n) * q);
         std::vector<Complex> current(static_cast<std::size_t>(n) * q);
-        last_layers_ = layers;
-        last_columns_ = columns;
-        last_result_is_real_ = false;
-        last_real_states_.clear();
-        last_real_endpoints_.clear();
-        last_complex_endpoints_.assign(
+        lastLayers = layers;
+        lastColumns = columns;
+        lastResultIsReal = false;
+        lastRealStates.clear();
+        lastRealEndpoints.clear();
+        lastComplexEndpoints.assign(
             static_cast<std::size_t>(columns) * layers * n, Complex(0));
-        if (cache_states_) {
-            last_complex_states_.assign(
+        if (cacheStates) {
+            lastComplexStates.assign(
                 static_cast<std::size_t>(columns) * layers * n * q,
                 Complex(0));
         } else {
-            last_complex_states_.clear();
+            lastComplexStates.clear();
         }
 
-        for (int physical_column = 0; physical_column < columns; ++physical_column) {
+        for (int physicalColumn = 0; physicalColumn < columns; ++physicalColumn) {
             std::fill(previous.begin(), previous.end(), Complex(0));
             for (int layer = 0; layer < layers; ++layer) {
                 std::fill(current.begin(), current.end(), Complex(0));
                 for (int component = 0; component < n; ++component) {
-                    const std::size_t boundary_index =
-                        (static_cast<std::size_t>(physical_column) * layers + layer) * n +
+                    const std::size_t boundaryIndex =
+                        (static_cast<std::size_t>(physicalColumn) * layers + layer) * n +
                         component;
                     current[static_cast<std::size_t>(component) * q] =
-                        boundary[boundary_index];
+                        boundary[boundaryIndex];
                 }
                 if (layer > 0) {
 #pragma omp parallel
                     {
-                        Real::thread_default_precision(precision_);
-                        Complex::thread_default_precision(precision_);
+                        Real::thread_default_precision(precision);
+                        Complex::thread_default_precision(precision);
 #pragma omp for schedule(static)
                         for (int node = 1; node < q; ++node) {
-                            apply_operator(
-                                operators_[node - 1], node, previous, current);
+                            ApplyOperator(
+                                operators[node - 1], node, previous, current);
                         }
                     }
                 }
-                solve_many(current);
+                SolveMany(current);
                 for (int component = 0; component < n; ++component) {
-                    last_complex_endpoints_[endpoint_index(
-                        physical_column, layer, component)] =
+                    lastComplexEndpoints[EndpointIndex(
+                        physicalColumn, layer, component)] =
                         current[static_cast<std::size_t>(component) * q + q - 1];
-                    if (cache_states_) {
+                    if (cacheStates) {
                         for (int node = 0; node < q; ++node) {
-                            last_complex_states_[state_index(
-                                physical_column, layer, component, node)] =
+                            lastComplexStates[StateIndex(
+                                physicalColumn, layer, component, node)] =
                                 current[
                                     static_cast<std::size_t>(component) * q + node];
                         }
@@ -743,49 +743,49 @@ private:
         }
     }
 
-    void propagate_real(
+    void PropagateReal(
         const std::vector<Complex>& boundary, int layers, int columns) {
-        const int q = node_count_;
-        const int n = dimension_;
+        const int q = nodeCount;
+        const int n = dimension;
         std::vector<Real> previous(static_cast<std::size_t>(n) * q);
         std::vector<Real> current(static_cast<std::size_t>(n) * q);
-        last_layers_ = layers;
-        last_columns_ = columns;
-        last_result_is_real_ = true;
-        last_complex_states_.clear();
-        last_complex_endpoints_.clear();
-        last_real_endpoints_.assign(
+        lastLayers = layers;
+        lastColumns = columns;
+        lastResultIsReal = true;
+        lastComplexStates.clear();
+        lastComplexEndpoints.clear();
+        lastRealEndpoints.assign(
             static_cast<std::size_t>(columns) * layers * n, Real(0));
-        if (cache_states_) {
-            last_real_states_.assign(
+        if (cacheStates) {
+            lastRealStates.assign(
                 static_cast<std::size_t>(columns) * layers * n * q, Real(0));
         } else {
-            last_real_states_.clear();
+            lastRealStates.clear();
         }
 
-        for (int physical_column = 0; physical_column < columns; ++physical_column) {
+        for (int physicalColumn = 0; physicalColumn < columns; ++physicalColumn) {
             std::fill(previous.begin(), previous.end(), Real(0));
             for (int layer = 0; layer < layers; ++layer) {
                 std::fill(current.begin(), current.end(), Real(0));
                 for (int component = 0; component < n; ++component) {
-                    const std::size_t boundary_index =
-                        (static_cast<std::size_t>(physical_column) * layers + layer) * n +
+                    const std::size_t boundaryIndex =
+                        (static_cast<std::size_t>(physicalColumn) * layers + layer) * n +
                         component;
                     current[static_cast<std::size_t>(component) * q] =
-                        boundary[boundary_index].real();
+                        boundary[boundaryIndex].real();
                 }
                 if (layer > 0) {
 #pragma omp parallel
                     {
-                        Real::thread_default_precision(precision_);
+                        Real::thread_default_precision(precision);
 #pragma omp for schedule(static)
                         for (int node = 1; node < q; ++node) {
-                            const SparseOperator& op = operators_[node - 1];
+                            const SparseOperator& op = operators[node - 1];
                             for (int row = 0; row < n; ++row) {
                                 Real sum(0);
-                                for (int index = op.row_ptr[row];
-                                     index < op.row_ptr[row + 1]; ++index) {
-                                    sum += op.real_value[index] *
+                                for (int index = op.rowPtr[row];
+                                     index < op.rowPtr[row + 1]; ++index) {
+                                    sum += op.realValue[index] *
                                            previous[
                                                static_cast<std::size_t>(
                                                    op.column[index]) * q + node];
@@ -796,15 +796,15 @@ private:
                         }
                     }
                 }
-                solve_many_real(current);
+                SolveManyReal(current);
                 for (int component = 0; component < n; ++component) {
-                    last_real_endpoints_[endpoint_index(
-                        physical_column, layer, component)] =
+                    lastRealEndpoints[EndpointIndex(
+                        physicalColumn, layer, component)] =
                         current[static_cast<std::size_t>(component) * q + q - 1];
-                    if (cache_states_) {
+                    if (cacheStates) {
                         for (int node = 0; node < q; ++node) {
-                            last_real_states_[state_index(
-                                physical_column, layer, component, node)] =
+                            lastRealStates[StateIndex(
+                                physicalColumn, layer, component, node)] =
                                 current[
                                     static_cast<std::size_t>(component) * q + node];
                         }
@@ -819,7 +819,7 @@ private:
 std::unique_ptr<Backend> backend;
 
 template <class Function>
-void guarded(Function&& function) {
+void Guarded(Function&& function) {
     try {
         function();
     } catch (const std::exception& error) {
@@ -833,44 +833,44 @@ void guarded(Function&& function) {
 
 }  // namespace
 
-void chess_native_load(const char* setup_file) {
-    guarded([&]() {
-        backend = std::make_unique<Backend>(setup_file);
+void CHESSNativeLoad(const char* setupFile) {
+    Guarded([&]() {
+        backend = std::make_unique<Backend>(setupFile);
         WSPutSymbol(stdlink, "Null");
     });
 }
 
-void chess_native_run(
-    const char* boundary, int layers, int columns, int cache_states) {
-    guarded([&]() {
+void CHESSNativeRun(
+    const char* boundary, int layers, int columns, int cacheStates) {
+    Guarded([&]() {
         if (!backend) throw std::runtime_error("backend is not loaded");
-        const std::string result = backend->run(
-            boundary, layers, columns, cache_states != 0);
+        const std::string result = backend->Run(
+            boundary, layers, columns, cacheStates != 0);
         WSPutString(stdlink, result.c_str());
     });
 }
 
-void chess_native_polynomial_run(
-    const char* boundary, int layers, int columns, int cache_states) {
-    guarded([&]() {
+void CHESSNativePolynomialRun(
+    const char* boundary, int layers, int columns, int cacheStates) {
+    Guarded([&]() {
         if (!backend) throw std::runtime_error("backend is not loaded");
-        const std::string result = backend->run_polynomial(
-            boundary, layers, columns, cache_states != 0
+        const std::string result = backend->RunPolynomial(
+            boundary, layers, columns, cacheStates != 0
         );
         WSPutString(stdlink, result.c_str());
     });
 }
 
-void chess_native_fetch(int mode, int selected_order) {
-    guarded([&]() {
+void CHESSNativeFetch(int mode, int selectedOrder) {
+    Guarded([&]() {
         if (!backend) throw std::runtime_error("backend is not loaded");
-        const std::string result = backend->fetch(mode, selected_order);
+        const std::string result = backend->Fetch(mode, selectedOrder);
         WSPutString(stdlink, result.c_str());
     });
 }
 
-void chess_native_clear() {
-    guarded([&]() {
+void CHESSNativeClear() {
+    Guarded([&]() {
         backend.reset();
         WSPutSymbol(stdlink, "Null");
     });

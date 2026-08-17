@@ -9,7 +9,7 @@ backend.
 The package function
 
 ```wl
-CHESSFLINTRunSLP[executable, slpFile, pointRows, precision, threads]
+CHESSFlintRunSLP[executable, slpFile, pointRows, precision, threads]
 ```
 
 implements the FLINT batch protocol already exercised by the experimental
@@ -39,7 +39,7 @@ the physics example. A typical adapter is:
 ```wl
 batch[nodes_, precision_, threads_] := Module[{coordinates, flintResult},
   coordinates = pathCoordinates /@ nodes;
-  flintResult = CHESSFLINTRunSLP[
+  flintResult = CHESSFlintRunSLP[
     evaluatorExecutable, preparedSLP, coordinates, precision, threads
   ];
   If[flintResult === $Failed,

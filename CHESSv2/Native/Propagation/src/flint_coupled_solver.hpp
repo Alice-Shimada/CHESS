@@ -12,36 +12,36 @@
 class FlintCoupledSolver {
 public:
     FlintCoupledSolver(
-        int decimal_precision,
-        int node_count,
-        int full_dimension,
+        int requestedPrecision,
+        int nodeCount,
+        int fullDimension,
         const std::vector<int>& active,
-        const std::vector<Real>& scalar_matrix,
-        const std::vector<SparseOperator>& b0_operators,
-        int flint_bits
+        const std::vector<Real>& scalarMatrix,
+        const std::vector<SparseOperator>& b0Operators,
+        int flintBits
     );
     ~FlintCoupledSolver();
 
     FlintCoupledSolver(const FlintCoupledSolver&) = delete;
     FlintCoupledSolver& operator=(const FlintCoupledSolver&) = delete;
 
-    std::vector<Complex> solve(const std::vector<Complex>& rhs);
+    std::vector<Complex> Solve(const std::vector<Complex>& rhs);
 
 private:
-    int decimal_precision_;
-    int dimension_;
-    gr_ctx_t real_context_;
-    gr_ctx_t complex_context_;
-    gr_mat_t lu_;
-    std::vector<slong> permutation_;
-    bool real_context_initialized_ = false;
-    bool complex_context_initialized_ = false;
-    bool lu_initialized_ = false;
+    int decimalPrecision;
+    int dimension;
+    gr_ctx_t realContext;
+    gr_ctx_t complexContext;
+    gr_mat_t lu;
+    std::vector<slong> permutation;
+    bool realContextInitialized = false;
+    bool complexContextInitialized = false;
+    bool luInitialized = false;
 
-    void clear() noexcept;
-    std::string real_string(const Real& value) const;
-    void set_component(nfloat_ptr destination, const Real& value);
-    Real get_component(nfloat_srcptr source);
-    void set_complex(gr_ptr destination, const Complex& value);
-    Complex get_complex(gr_srcptr source);
+    void Clear() noexcept;
+    std::string RealString(const Real& value) const;
+    void SetComponent(nfloat_ptr destination, const Real& value);
+    Real GetComponent(nfloat_srcptr source);
+    void SetComplex(gr_ptr destination, const Complex& value);
+    Complex GetComplex(gr_srcptr source);
 };

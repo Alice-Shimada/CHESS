@@ -9,9 +9,9 @@ using Real = boost::multiprecision::mpfr_float;
 using Complex = boost::multiprecision::mpc_complex;
 
 struct SparseOperator {
-    bool real_only = true;
-    std::vector<int> row_ptr;
+    bool realOnly = true;
+    std::vector<int> rowPtr;
     std::vector<int> column;
-    std::vector<Real> real_value;
-    std::vector<Complex> complex_value;
+    std::vector<Real> realValue;
+    std::vector<Complex> complexValue;
 };

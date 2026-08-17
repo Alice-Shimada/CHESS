@@ -13,7 +13,7 @@ testRoot = DirectoryName[DirectoryName[ExpandFileName[$InputFileName]]];
 Get[FileNameJoin[{testRoot, "CHESSv2.wl"}]];
 
 failures = {};
-assert[name_String, condition_] := If[
+CheckAssertion[name_String, condition_] := If[
   TrueQ[condition],
   Print["PASS: ", name],
   AppendTo[failures, name];
@@ -44,9 +44,9 @@ BinaryWrite[
   ByteOrdering -> -1
 ];
 Close[stream];
-decoded = CHESSFLINTReadNFloatBinary[fixture, 60];
+decoded = CHESSFlintReadNFloatBinary[fixture, 60];
 Quiet @ DeleteFile[fixture];
-assert[
+CheckAssertion[
   "flint-nfloat01-exact-decoder",
   AssociationQ[decoded] &&
   {decoded["PointCount"], decoded["ValueCount"]} === {1, 3} &&
@@ -58,7 +58,7 @@ assert[
 (* FLINT encodes +Infinity, -Infinity, and NaN in the exponent word directly
    above WORD_MIN.  They must never be rounded into an apparently finite matrix
    entry. *)
-writeOneRecord[record_List, suffix_String] := Module[{file, localStream},
+WriteOneRecord[record_List, suffix_String] := Module[{file, localStream},
   file = FileNameJoin[{
     $TemporaryDirectory,
     "chess-flint-special-" <> ToString[$ProcessID] <> "-" <> suffix <> ".bin"
@@ -85,15 +85,15 @@ malformedRecords = {
   {2, 2, 2^63}            (* invalid sign *)
 };
 specialDecoded = Table[
-  specialFixture = writeOneRecord[
+  specialFixture = WriteOneRecord[
     malformedRecords[[index]], ToString[index]
   ];
-  value = Quiet @ CHESSFLINTReadNFloatBinary[specialFixture, 60];
+  value = Quiet @ CHESSFlintReadNFloatBinary[specialFixture, 60];
   Quiet @ DeleteFile[specialFixture];
   value,
   {index, Length[malformedRecords]}
 ];
-assert[
+CheckAssertion[
   "flint-nonfinite-record-fails-closed",
   specialDecoded === ConstantArray[$Failed, Length[malformedRecords]]
 ];
@@ -101,35 +101,35 @@ assert[
 evaluator = Environment["CHESSV2_FLINT_EVALUATOR"];
 slp = Environment["CHESSV2_FLINT_SLP"];
 If[StringQ[evaluator] && StringQ[slp] &&
-   CHESSFLINTAvailableQ[evaluator, slp],
-  flintResult = CHESSFLINTRunSLP[
+   CHESSFlintAvailableQ[evaluator, slp],
+  flintResult = CHESSFlintRunSLP[
     evaluator, slp, {{1, 2, 3, 4, 5, 6, 7}}, 40, 1
   ];
-  assert[
+  CheckAssertion[
     "flint-existing-slp-batch-smoke",
     AssociationQ[flintResult] && flintResult["PointCount"] === 1 &&
     flintResult["ValueCount"] > 0 && Dimensions[flintResult["Values"]] ===
       {1, flintResult["ValueCount"]}
   ];
-  ClearAll[adapterCoordinates, adapterAssembly];
-  adapterCoordinates[point_, precision_] :=
+  ClearAll[AdapterCoordinates, AdapterAssembly];
+  AdapterCoordinates[point_, precision_] :=
     N[{1 + point, 2, 3, 4, 5, 6, 7}, precision];
-  adapterAssembly[point_, values_, precision_] :=
+  AdapterAssembly[point_, values_, precision_] :=
     N[{{{values[[1]]}}, {{values[[2]]}}}, precision];
-  flintAdapter = CHESSNativeFLINTMatrixAdapter[
-    evaluator, slp, adapterCoordinates, adapterAssembly, 1
+  flintAdapter = CHESSNativeFlintMatrixAdapter[
+    evaluator, slp, AdapterCoordinates, AdapterAssembly, 1
   ];
   flintAdapterValues = CHESSNodeEvaluatorBatch[flintAdapter][
     {0, 1/10}, 40, 2
   ];
-  badAssembly[point_, values_, precision_] := {IdentityMatrix[2]};
-  badFlintAdapter = CHESSNativeFLINTMatrixAdapter[
-    evaluator, slp, adapterCoordinates, badAssembly, 1
+  BadAssembly[point_, values_, precision_] := {IdentityMatrix[2]};
+  badFlintAdapter = CHESSNativeFlintMatrixAdapter[
+    evaluator, slp, AdapterCoordinates, BadAssembly, 1
   ];
   badFlintAdapterValues = Quiet @ CHESSNodeEvaluatorBatch[badFlintAdapter][
     {0}, 40, 1
   ];
-  assert[
+  CheckAssertion[
     "flint-native-matrix-adapter",
     CHESSNodeEvaluatorQ[flintAdapter] && ListQ[flintAdapterValues] &&
     Dimensions[flintAdapterValues] === {2, 2, 1, 1} &&

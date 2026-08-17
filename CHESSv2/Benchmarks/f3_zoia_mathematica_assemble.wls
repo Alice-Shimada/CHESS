@@ -184,7 +184,7 @@ If[solution === $Failed,
 finalState = CHESSFinalState[solution];
 perOrderErrors = Max /@ Transpose[Abs[finalState - referenceValues]];
 maxError = Max[perOrderErrors];
-hashHex[file_String] := IntegerString[FileHash[file, "SHA256"], 16, 64];
+HashHex[file_String] := IntegerString[FileHash[file, "SHA256"], 16, 64];
 workerScript = FileNameJoin[{
   DirectoryName[ExpandFileName[$InputFileName]],
   "f3_zoia_mathematica_worker.wls"
@@ -217,7 +217,7 @@ record = <|
   "ObservedWorkerWallSeconds" -> observedWorkerWallSeconds,
   "WorkerTimeLog" -> workerTimeLog,
   "WorkerTimeLogSHA256" -> If[
-    MissingQ[workerTimeLog], Missing["NotRecorded"], hashHex[workerTimeLog]
+    MissingQ[workerTimeLog], Missing["NotRecorded"], HashHex[workerTimeLog]
   ],
   "PropagationSeconds" -> propagationSeconds,
   "ObservedEndToEndSeconds" -> If[
@@ -226,29 +226,29 @@ record = <|
     observedWorkerWallSeconds + importSeconds + propagationSeconds
   ],
   "ProvenanceSHA256" -> <|
-    "CHESSv2Loader" -> hashHex[packageFile],
-    "CanonicalCore" -> hashHex[
+    "CHESSv2Loader" -> HashHex[packageFile],
+    "CanonicalCore" -> HashHex[
       FileNameJoin[{packageRoot, "Core", "Canonical.wl"}]
     ],
-    "NonCanonicalCore" -> hashHex[
+    "NonCanonicalCore" -> HashHex[
       FileNameJoin[{packageRoot, "Core", "NonCanonical.wl"}]
     ],
-    "Dispatch" -> hashHex[
+    "Dispatch" -> HashHex[
       FileNameJoin[{packageRoot, "Core", "Dispatch.wl"}]
     ],
-    "WorkerScript" -> hashHex[workerScript],
-    "AssemblerScript" -> hashHex[ExpandFileName[$InputFileName]],
-    "LegacyNonCanonicalPackage" -> hashHex[
+    "WorkerScript" -> HashHex[workerScript],
+    "AssemblerScript" -> HashHex[ExpandFileName[$InputFileName]],
+    "LegacyNonCanonicalPackage" -> HashHex[
       FileNameJoin[{projectRoot, "ChessNonCanonical.wl"}]
     ],
-    "PreparedDAG" -> hashHex[
+    "PreparedDAG" -> HashHex[
       FileNameJoin[{exampleRoot, "prepared_F3_physical_DAG_X1_X2.mx"}]
     ],
-    "DAGEvaluator" -> hashHex[
+    "DAGEvaluator" -> HashHex[
       FileNameJoin[{exampleRoot, "scripts", "f3_physical_dag_evaluator.wl"}]
     ],
-    "BoundaryX1" -> hashHex[boundaryFile],
-    "ReferenceX2" -> hashHex[referenceFile]
+    "BoundaryX1" -> HashHex[boundaryFile],
+    "ReferenceX2" -> HashHex[referenceFile]
   |>,
   "MaxAbsError" -> maxError,
   "PerOrderAbsError" -> perOrderErrors,

@@ -133,7 +133,7 @@ commonRules = {
 ];
 If[!AssociationQ[nativeHandle], Print["PBB64_NATIVE_PREPARE_FAILED=True"]; Quit[3]];
 
-runMathematica[] := Module[{result},
+RunMathematica[] := Module[{result},
   result = SpectralPropagate[
     {nAt}, boundary, interval,
     Sequence @@ commonRules,
@@ -143,7 +143,7 @@ runMathematica[] := Module[{result},
   result
 ];
 
-runNative[] := Module[{result},
+RunNative[] := Module[{result},
   result = SpectralPropagate[
     {nAt}, boundary, interval,
     Sequence @@ commonRules,
@@ -158,12 +158,12 @@ runNative[] := Module[{result},
 (* Timed cold calls warm both implementations.  Each paired repeat
    uses the fixed Mathematica-then-native order; the raw vectors are retained
    so a caller can assess timing drift instead of hiding it in one aggregate. *)
-{mathematicaColdSeconds, mathematicaResult} = AbsoluteTiming[runMathematica[]];
-{nativeColdSeconds, nativeResult} = AbsoluteTiming[runNative[]];
+{mathematicaColdSeconds, mathematicaResult} = AbsoluteTiming[RunMathematica[]];
+{nativeColdSeconds, nativeResult} = AbsoluteTiming[RunNative[]];
 paired = Table[
   {
-    AbsoluteTiming[mathematicaResult = runMathematica[]],
-    AbsoluteTiming[nativeResult = runNative[]]
+    AbsoluteTiming[mathematicaResult = RunMathematica[]],
+    AbsoluteTiming[nativeResult = RunNative[]]
   },
   {repeats}
 ];

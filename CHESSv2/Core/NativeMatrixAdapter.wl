@@ -14,7 +14,7 @@
       evaluates ordinary coefficient functions or path-variable expressions
       in Mathematica, then hands the sampled matrices to NativeBackend.
 
-    CHESSNativeFLINTMatrixAdapter
+    CHESSNativeFlintMatrixAdapter
       evaluates a prepared FORM straight-line program with FLINT and lets a
       problem-specific assembler turn each returned value row into
       {B0,B1,...}.  This path also moves node expression evaluation out of
@@ -23,22 +23,22 @@
 
 ClearAll[
   CHESSNativeMatrixAdapter,
-  CHESSNativeFLINTMatrixAdapter,
+  CHESSNativeFlintMatrixAdapter,
   CHESSNativeEvaluateCoefficientList,
   CHESSNativeEvaluateExpressionList,
   CHESSNativeValidatePolynomialMatrices,
-  CHESSNativeFLINTBatchEvaluate
+  CHESSNativeFlintBatchEvaluate
 ];
 
 CHESSNativeMatrixAdapter::spec =
   "Expected a non-empty coefficient-matrix list and a positive dimension.";
 CHESSNativeMatrixAdapter::expr =
   "Every expression coefficient must have dimensions `1`.";
-CHESSNativeFLINTMatrixAdapter::coord =
+CHESSNativeFlintMatrixAdapter::coord =
   "The coordinate function did not produce one rectangular real row per node.";
-CHESSNativeFLINTMatrixAdapter::assemble =
+CHESSNativeFlintMatrixAdapter::assemble =
   "The FLINT assembly function returned invalid coefficient matrices at node `1`.";
-CHESSNativeFLINTMatrixAdapter::spec =
+CHESSNativeFlintMatrixAdapter::spec =
   "Expected executable and SLP paths, coordinate and assembly functions, and a positive dimension.";
 
 CHESSNativeValidatePolynomialMatrices[matrices_, dimensions_List] :=
@@ -125,9 +125,9 @@ CHESSNativeMatrixAdapter[___] := (
   $Failed
 );
 
-Options[CHESSNativeFLINTMatrixAdapter] = Options[CHESSFLINTRunSLP];
+Options[CHESSNativeFlintMatrixAdapter] = Options[CHESSFlintRunSLP];
 
-CHESSNativeFLINTBatchEvaluate[
+CHESSNativeFlintBatchEvaluate[
   executable_String,
   slpFile_String,
   coordinateFunction_,
@@ -145,10 +145,10 @@ CHESSNativeFLINTBatchEvaluate[
   If[
     coordinates === $Failed || !MatrixQ[coordinates, NumericQ] ||
     !FreeQ[coordinates, _Complex] || Length[coordinates] =!= Length[points],
-    Message[CHESSNativeFLINTMatrixAdapter::coord];
+    Message[CHESSNativeFlintMatrixAdapter::coord];
     Return[$Failed]
   ];
-  result = CHESSFLINTRunSLP[
+  result = CHESSFlintRunSLP[
     executable, slpFile, coordinates, precision, threads,
     Sequence @@ flintOptions
   ];
@@ -161,7 +161,7 @@ CHESSNativeFLINTBatchEvaluate[
     {points, result["Values"]}
   ];
   If[Length[assembled] =!= Length[points],
-    Message[CHESSNativeFLINTMatrixAdapter::assemble, Missing["Unknown"]];
+    Message[CHESSNativeFlintMatrixAdapter::assemble, Missing["Unknown"]];
     Return[$Failed]
   ];
   badPoint = FirstCase[
@@ -176,7 +176,7 @@ CHESSNativeFLINTBatchEvaluate[
     _, Missing["Absent"]
   ];
   If[!MissingQ[badPoint],
-    Message[CHESSNativeFLINTMatrixAdapter::assemble, badPoint];
+    Message[CHESSNativeFlintMatrixAdapter::assemble, badPoint];
     Return[$Failed]
   ];
   Map[SparseArray /@ # &, assembled]
@@ -184,7 +184,7 @@ CHESSNativeFLINTBatchEvaluate[
 
 (* coordinateFunction[point,precision] returns one real SLP input row.
    assembleFunction[point,values,precision] returns {B0,B1,...}. *)
-CHESSNativeFLINTMatrixAdapter[
+CHESSNativeFlintMatrixAdapter[
   executable_String,
   slpFile_String,
   coordinateFunction_,
@@ -193,9 +193,9 @@ CHESSNativeFLINTMatrixAdapter[
   opts : OptionsPattern[]
 ] := Module[{dimensions, flintOptions, batch},
   dimensions = {dimension, dimension};
-  flintOptions = FilterRules[{opts}, Options[CHESSFLINTRunSLP]];
+  flintOptions = FilterRules[{opts}, Options[CHESSFlintRunSLP]];
   batch = Function[{points, precision, threads},
-    CHESSNativeFLINTBatchEvaluate[
+    CHESSNativeFlintBatchEvaluate[
       executable, slpFile, coordinateFunction, assembleFunction, dimensions,
       flintOptions, points, precision, threads
     ]
@@ -209,7 +209,7 @@ CHESSNativeFLINTMatrixAdapter[
   ]
 ];
 
-CHESSNativeFLINTMatrixAdapter[___] := (
-  Message[CHESSNativeFLINTMatrixAdapter::spec];
+CHESSNativeFlintMatrixAdapter[___] := (
+  Message[CHESSNativeFlintMatrixAdapter::spec];
   $Failed
 );

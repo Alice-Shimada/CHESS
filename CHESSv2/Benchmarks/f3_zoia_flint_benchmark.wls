@@ -79,7 +79,7 @@ threadCount = 8;
 
 (* Loading F3PhysicalBackend.wl supplies only the example-specific prepared
    path and matrix-assembly functions.  Its duplicated process/decoder path is
-   deliberately not called; CHESSFLINTRunSLP below owns the FLINT interface. *)
+   deliberately not called; CHESSFlintRunSLP below owns the FLINT interface. *)
 {setupSeconds, setupResult} = AbsoluteTiming[
   Quiet @ Check[
     Get[packageFile];
@@ -147,7 +147,7 @@ CHESSV2F3MatrixListBatch[
   ][[1]];
 
   flintInterfaceSeconds = AbsoluteTiming[
-    flintResult = CHESSFLINTRunSLP[
+    flintResult = CHESSFlintRunSLP[
       $F3PhysicalBackendExecutable,
       $F3PhysicalBackendSLP,
       pathRows,
@@ -235,7 +235,7 @@ nodeTiming = CHESSV2F3LastTiming[];
 finalState = CHESSFinalState[solution];
 perOrderErrors = Max /@ Transpose[Abs[finalState - referenceValues]];
 maxError = Max[perOrderErrors];
-hashHex[file_String] := IntegerString[FileHash[file, "SHA256"], 16, 64];
+HashHex[file_String] := IntegerString[FileHash[file, "SHA256"], 16, 64];
 
 record = <|
   "Example" -> "Simone Zoia F3 X1 to X2 physical-coordinate path",
@@ -268,32 +268,32 @@ record = <|
   "BoundarySource" -> boundaryFile,
   "ReferenceSource" -> referenceFile,
   "ProvenanceSHA256" -> <|
-    "CHESSv2Loader" -> hashHex[packageFile],
-    "CanonicalCore" -> hashHex[
+    "CHESSv2Loader" -> HashHex[packageFile],
+    "CanonicalCore" -> HashHex[
       FileNameJoin[{packageRoot, "Core", "Canonical.wl"}]
     ],
-    "NonCanonicalCore" -> hashHex[
+    "NonCanonicalCore" -> HashHex[
       FileNameJoin[{packageRoot, "Core", "NonCanonical.wl"}]
     ],
-    "Dispatch" -> hashHex[
+    "Dispatch" -> HashHex[
       FileNameJoin[{packageRoot, "Core", "Dispatch.wl"}]
     ],
-    "FLINTBatchEvaluation" -> hashHex[
+    "FLINTBatchEvaluation" -> HashHex[
       FileNameJoin[{packageRoot, "Core", "FLINTBatchEvaluation.wl"}]
     ],
-    "BenchmarkDriver" -> hashHex[ExpandFileName[$InputFileName]],
-    "F3AssemblyAdapter" -> hashHex[externalBackendFile],
-    "EvaluatorSource" -> hashHex[evaluatorSourceFile],
-    "FLINTLibrary" -> hashHex[flintLibraryFile],
-    "BoundaryX1" -> hashHex[boundaryFile],
-    "ReferenceX2" -> hashHex[referenceFile]
+    "BenchmarkDriver" -> HashHex[ExpandFileName[$InputFileName]],
+    "F3AssemblyAdapter" -> HashHex[externalBackendFile],
+    "EvaluatorSource" -> HashHex[evaluatorSourceFile],
+    "FLINTLibrary" -> HashHex[flintLibraryFile],
+    "BoundaryX1" -> HashHex[boundaryFile],
+    "ReferenceX2" -> HashHex[referenceFile]
   |>,
   "EvaluatorExecutableSHA256" ->
-    hashHex[$F3PhysicalBackendExecutable],
+    HashHex[$F3PhysicalBackendExecutable],
   "PreparedSLPSHA256" ->
-    hashHex[$F3PhysicalBackendSLP],
+    HashHex[$F3PhysicalBackendSLP],
   "PreparedCacheSHA256" ->
-    hashHex[$F3PhysicalBackendCache],
+    HashHex[$F3PhysicalBackendCache],
   "FinalState" -> finalState,
   "ReferenceValues" -> referenceValues
 |>;

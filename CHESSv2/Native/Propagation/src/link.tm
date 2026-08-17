@@ -2,40 +2,40 @@
 :Evaluate: Begin["`Private`"]
 
 :Begin:
-:Function: chess_native_load
-:Pattern: ChessNativeLoad[file_String]
+:Function: CHESSNativeLoad
+:Pattern: CHESSNativeLoad[file_String]
 :Arguments: {file}
 :ArgumentTypes: {String}
 :ReturnType: Manual
 :End:
 
 :Begin:
-:Function: chess_native_run
-:Pattern: ChessNativeRun[boundary_String, layers_Integer, columns_Integer, cacheStates_Integer]
+:Function: CHESSNativeRun
+:Pattern: CHESSNativeRun[boundary_String, layers_Integer, columns_Integer, cacheStates_Integer]
 :Arguments: {boundary, layers, columns, cacheStates}
 :ArgumentTypes: {String, Integer, Integer, Integer}
 :ReturnType: Manual
 :End:
 
 :Begin:
-:Function: chess_native_polynomial_run
-:Pattern: ChessNativePolynomialRun[boundary_String, layers_Integer, columns_Integer, cacheStates_Integer]
+:Function: CHESSNativePolynomialRun
+:Pattern: CHESSNativePolynomialRun[boundary_String, layers_Integer, columns_Integer, cacheStates_Integer]
 :Arguments: {boundary, layers, columns, cacheStates}
 :ArgumentTypes: {String, Integer, Integer, Integer}
 :ReturnType: Manual
 :End:
 
 :Begin:
-:Function: chess_native_fetch
-:Pattern: ChessNativeFetch[mode_Integer, selectedOrder_Integer]
+:Function: CHESSNativeFetch
+:Pattern: CHESSNativeFetch[mode_Integer, selectedOrder_Integer]
 :Arguments: {mode, selectedOrder}
 :ArgumentTypes: {Integer, Integer}
 :ReturnType: Manual
 :End:
 
 :Begin:
-:Function: chess_native_clear
-:Pattern: ChessNativeClear[]
+:Function: CHESSNativeClear
+:Pattern: CHESSNativeClear[]
 :Arguments: {}
 :ArgumentTypes: {}
 :ReturnType: Manual

@@ -17,7 +17,7 @@ Get[FileNameJoin[{testRoot, "CHESSv2.wl"}]];
 failures = {};
 assertionCount = 0;
 expectedAssertionCount = 25;
-assert[name_String, condition_] := If[
+CheckAssertion[name_String, condition_] := If[
   assertionCount++;
   TrueQ[condition],
   Print["PASS: ", name],
@@ -25,8 +25,8 @@ assert[name_String, condition_] := If[
   Print["FAIL: ", name]
 ];
 
-maxError[a_, b_] := Max[Abs[Flatten[N[a - b, 50]]]];
-metadataValue[metadata_List, key_String] := Module[{position},
+MaxError[a_, b_] := Max[Abs[Flatten[N[a - b, 50]]]];
+MetadataValue[metadata_List, key_String] := Module[{position},
   position = FirstPosition[metadata, key, Missing["NotFound"]];
   If[MissingQ[position] || position[[1]] >= Length[metadata],
     Missing["NotFound"],
@@ -34,7 +34,7 @@ metadataValue[metadata_List, key_String] := Module[{position},
   ]
 ];
 
-assert[
+CheckAssertion[
   "single-loader-and-unified-entry",
   $CHESSv2Version === "2.0.0-experiment" &&
   Context[SpectralPropagate] === "Global`" &&
@@ -46,18 +46,18 @@ assert[
 (* The compatibility adapter must stop after the first valid convention.  This
    guards against silently evaluating an expensive or stateful matrix function
    two additional times at every collocation node. *)
-ClearAll[lazyMatrix, lazyCallCount];
+ClearAll[LazyMatrix, lazyCallCount];
 lazyCallCount = 0;
-lazyMatrix[x_, "Precision" -> p_] := (
+LazyMatrix[x_, "Precision" -> p_] := (
   lazyCallCount++;
   N[{{1}}, p]
 );
-lazyMatrixValue = CHESSUnifiedEvaluateMatrix[lazyMatrix, 1/3, 60];
-assert[
+lazyMatrixValue = CHESSUnifiedEvaluateMatrix[LazyMatrix, 1/3, 60];
+CheckAssertion[
   "matrix-adapter-stops-after-first-valid-convention",
   CHESSNumericMatrixQ[lazyMatrixValue] && lazyCallCount === 1
 ];
-assert[
+CheckAssertion[
   "option-filter-preserves-rule-delayed",
   CHESSFilterOptionRules[
     {"Nodes" :> 12, "NotAnOption" :> 99},
@@ -76,7 +76,7 @@ Quiet[checkedCanonicalFailure = Block[{SpectralPropagateSequential},
   );
   CHESSCheckedCanonicalPropagate[Null, {{1}}, {0, 1}, {}]
 ]];
-assert[
+CheckAssertion[
   "canonical-solvefail-message-is-promoted-to-failure",
   checkedCanonicalFailure === $Failed
 ];
@@ -85,17 +85,17 @@ assert[
 (* Canonical B1 routes                                                    *)
 (* ---------------------------------------------------------------------- *)
 
-ClearAll[canonicalB1, twoArgumentB1];
-Options[canonicalB1] = {"Precision" -> 80};
-canonicalB1[x_, OptionsPattern[]] :=
+ClearAll[CanonicalB1, TwoArgumentB1];
+Options[CanonicalB1] = {"Precision" -> 80};
+CanonicalB1[x_, OptionsPattern[]] :=
   N[{{1/2}}, OptionValue["Precision"]];
-twoArgumentB1[x_, precision_] := N[{{1/2}}, precision];
+TwoArgumentB1[x_, precision_] := N[{{1/2}}, precision];
 
 canonicalBoundary = N[{{1, 0, 0, 0}}, 70];
 canonicalExpected = N[{{1, 1/2, 1/8, 1/48}}, 70];
 
 bareCanonical = SpectralPropagate[
-  canonicalB1,
+  CanonicalB1,
   canonicalBoundary,
   {0, 1},
   "Nodes" -> 22,
@@ -104,7 +104,7 @@ bareCanonical = SpectralPropagate[
   "ParallelEvaluation" -> False
 ];
 explicitCanonical = SpectralPropagate[
-  {0, twoArgumentB1},
+  {0, TwoArgumentB1},
   canonicalBoundary,
   {0, 1},
   "Nodes" -> 22,
@@ -113,17 +113,17 @@ explicitCanonical = SpectralPropagate[
   "ParallelEvaluation" -> False
 ];
 
-assert[
+CheckAssertion[
   "bare-b1-uses-canonical",
   bareCanonical =!= $Failed &&
   bareCanonical[[6]] === "SequentialEpsilon" &&
-  maxError[bareCanonical[[3]], canonicalExpected] < 10^-55
+  MaxError[bareCanonical[[3]], canonicalExpected] < 10^-55
 ];
-assert[
+CheckAssertion[
   "explicit-only-b1-uses-canonical",
   explicitCanonical =!= $Failed &&
   explicitCanonical[[6]] === "SequentialEpsilon" &&
-  maxError[explicitCanonical[[3]], bareCanonical[[3]]] < 10^-60
+  MaxError[explicitCanonical[[3]], bareCanonical[[3]]] < 10^-60
 ];
 
 (* SparseArray is not a List expression.  The generic legacy route must still
@@ -138,35 +138,35 @@ sparseConstantCanonical = SpectralPropagate[
   "WorkingPrecisionA" -> 90,
   "ParallelEvaluation" -> False
 ];
-assert[
+CheckAssertion[
   "sparse-constant-b1-uses-canonical-adapter",
   sparseConstantCanonical =!= $Failed &&
-  maxError[sparseConstantCanonical[[3]], canonicalExpected] < 10^-55
+  MaxError[sparseConstantCanonical[[3]], canonicalExpected] < 10^-55
 ];
 
 (* Every unified route must reject a square operator of the wrong physical
    dimension before the historical coefficient loops can form partial output. *)
-ClearAll[wrongDimensionMatrix];
-wrongDimensionMatrix[x_, p_] := N[IdentityMatrix[2], p];
+ClearAll[WrongDimensionMatrix];
+WrongDimensionMatrix[x_, p_] := N[IdentityMatrix[2], p];
 Quiet[wrongBareConstant = SpectralPropagate[
   IdentityMatrix[2], N[{{1, 0}}, 50], {0, 1},
   "Nodes" -> 10, "Precision" -> 50, "ParallelEvaluation" -> False
 ]];
 Quiet[wrongOnlyB1 = SpectralPropagate[
-  {0, wrongDimensionMatrix}, N[{{1, 0}}, 50], {0, 1},
+  {0, WrongDimensionMatrix}, N[{{1, 0}}, 50], {0, 1},
   "Nodes" -> 10, "Precision" -> 50, "ParallelEvaluation" -> False
 ]];
 Quiet[wrongOnlyB0 = SpectralPropagate[
-  {wrongDimensionMatrix}, N[{{1}}, 50], {0, 1},
+  {WrongDimensionMatrix}, N[{{1}}, 50], {0, 1},
   "Nodes" -> 10, "Precision" -> 50, "ParallelEvaluation" -> False,
   "DeltaOrder" -> 4
 ]];
 Quiet[wrongMixed = SpectralPropagate[
-  {wrongDimensionMatrix, {{1/3}}},
+  {WrongDimensionMatrix, {{1/3}}},
   N[{{1, 0}}, 50], {0, 1},
   "Nodes" -> 10, "Precision" -> 50, "ParallelEvaluation" -> False
 ]];
-assert[
+CheckAssertion[
   "operator-dimensions-checked-on-every-route",
   wrongBareConstant === $Failed && wrongOnlyB1 === $Failed &&
   wrongOnlyB0 === $Failed && wrongMixed === $Failed
@@ -175,7 +175,7 @@ assert[
 (* Regular canonical segmentation is implemented only in the thin wrapper;
    each segment still uses the original canonical solver unchanged. *)
 segmentedCanonical = SpectralPropagate[
-  {0, twoArgumentB1},
+  {0, TwoArgumentB1},
   canonicalBoundary,
   {0, 1},
   "Segments" -> 2,
@@ -184,25 +184,25 @@ segmentedCanonical = SpectralPropagate[
   "WorkingPrecisionA" -> 90,
   "ParallelEvaluation" -> False
 ];
-assert[
+CheckAssertion[
   "canonical-regular-segmentation",
   segmentedCanonical =!= $Failed &&
   segmentedCanonical[[6]] === {"CanonicalSegments", 2} &&
-  maxError[segmentedCanonical[[3]], canonicalExpected] < 10^-50
+  MaxError[segmentedCanonical[[3]], canonicalExpected] < 10^-50
 ];
 
 (* ---------------------------------------------------------------------- *)
 (* B0-only fake-delta routes                                              *)
 (* ---------------------------------------------------------------------- *)
 
-ClearAll[scalarB0, diagonalB0];
-scalarB0[x_, precision_] := N[{{1/3}}, precision];
-diagonalB0[x_, precision_] := N[
+ClearAll[ScalarB0, DiagonalB0];
+ScalarB0[x_, precision_] := N[{{1/3}}, precision];
+DiagonalB0[x_, precision_] := N[
   DiagonalMatrix[{1/3, -1/5}], precision
 ];
 
 autoDelta = SpectralPropagate[
-  {scalarB0},
+  {ScalarB0},
   N[{{1}}, 70],
   {0, 1},
   "Nodes" -> 22,
@@ -213,7 +213,7 @@ autoDelta = SpectralPropagate[
   "MaxDeltaOrder" -> 64
 ];
 fixedDelta = SpectralPropagate[
-  {scalarB0},
+  {ScalarB0},
   N[{{1}}, 70],
   {0, 1},
   "Nodes" -> 22,
@@ -224,19 +224,19 @@ fixedDelta = SpectralPropagate[
   "DeltaTolerance" -> 10^-45
 ];
 
-assert[
+CheckAssertion[
   "b0-only-auto-delta-analytic",
   autoDelta =!= $Failed &&
   autoDelta[[6, 1]] === "FakeDelta" &&
   autoDelta[[6, 2]] === "Automatic" &&
-  IntegerQ[metadataValue[autoDelta[[6]], "SelectedOrder"]] &&
-  metadataValue[autoDelta[[6]], "TailEstimate"] < 10^-45 &&
+  IntegerQ[MetadataValue[autoDelta[[6]], "SelectedOrder"]] &&
+  MetadataValue[autoDelta[[6]], "TailEstimate"] < 10^-45 &&
   Abs[autoDelta[[3, 1, 1]] - Exp[N[1/3, 70]]] < 10^-45
 ];
-assert[
+CheckAssertion[
   "b0-only-auto-versus-higher-fixed-order",
   fixedDelta =!= $Failed &&
-  maxError[autoDelta[[3]], fixedDelta[[3]]] < 10^-45
+  MaxError[autoDelta[[3]], fixedDelta[[3]]] < 10^-45
 ];
 
 (* A time-dependent matrix whose values at different points do not commute is
@@ -245,13 +245,13 @@ assert[
    is compared with a deliberately higher fixed delta order while keeping the
    same collocation grid.  The explicit commutator check prevents this fixture
    from accidentally degenerating into another commuting example. *)
-ClearAll[noncommutingB0];
-noncommutingB0[x_, precision_] := N[
+ClearAll[NoncommutingB0];
+NoncommutingB0[x_, precision_] := N[
   {{0, 1 + x}, {-x/3, 1/5}}, precision
 ];
 noncommutingBoundary = N[{{1}, {-2/3}}, 70];
 noncommutingAuto = SpectralPropagate[
-  {noncommutingB0},
+  {NoncommutingB0},
   noncommutingBoundary,
   {0, 1},
   "Nodes" -> 26,
@@ -262,7 +262,7 @@ noncommutingAuto = SpectralPropagate[
   "MaxDeltaOrder" -> 64
 ];
 noncommutingFixed = SpectralPropagate[
-  {noncommutingB0},
+  {NoncommutingB0},
   noncommutingBoundary,
   {0, 1},
   "Nodes" -> 26,
@@ -272,12 +272,12 @@ noncommutingFixed = SpectralPropagate[
   "DeltaOrder" -> 48,
   "DeltaTolerance" -> 10^-35
 ];
-assert[
+CheckAssertion[
   "b0-only-noncommuting-auto-versus-fixed",
   noncommutingAuto =!= $Failed && noncommutingFixed =!= $Failed &&
-  noncommutingB0[0, 70] . noncommutingB0[1, 70] =!=
-    noncommutingB0[1, 70] . noncommutingB0[0, 70] &&
-  maxError[noncommutingAuto[[3]], noncommutingFixed[[3]]] < 10^-35
+  NoncommutingB0[0, 70] . NoncommutingB0[1, 70] =!=
+    NoncommutingB0[1, 70] . NoncommutingB0[0, 70] &&
+  MaxError[noncommutingAuto[[3]], noncommutingFixed[[3]]] < 10^-35
 ];
 
 (* Several physical boundary columns must remain independent under B0.  This
@@ -289,7 +289,7 @@ multiExpected = N[
   70
 ];
 multiDelta = SpectralPropagate[
-  {diagonalB0},
+  {DiagonalB0},
   multiBoundary,
   {0, 1},
   "Segments" -> 2,
@@ -300,12 +300,12 @@ multiDelta = SpectralPropagate[
   "DeltaTolerance" -> 10^-40,
   "MaxDeltaOrder" -> 64
 ];
-assert[
+CheckAssertion[
   "b0-only-multiple-columns-and-segments",
   multiDelta =!= $Failed &&
   Dimensions[multiDelta[[3]]] === Dimensions[multiBoundary] &&
   multiDelta[[6, 1]] === "FakeDeltaSegments" &&
-  maxError[multiDelta[[3]], multiExpected] < 10^-38
+  MaxError[multiDelta[[3]], multiExpected] < 10^-38
 ];
 
 (* B0=0 is a useful limiting case: every higher dummy coefficient vanishes and
@@ -320,17 +320,17 @@ zeroDelta = SpectralPropagate[
   "ParallelEvaluation" -> False,
   "DeltaTolerance" -> 10^-35
 ];
-assert[
+CheckAssertion[
   "b0-zero-limiting-case",
   zeroDelta =!= $Failed && zeroDelta[[3]] === SetPrecision[multiBoundary, 60]
 ];
 
 (* The automatic selector must fail closed when the maximum order is plainly
    insufficient; returning a partial sum here would defeat automatic control. *)
-ClearAll[largeB0];
-largeB0[x_, precision_] := N[{{20}}, precision];
+ClearAll[LargeB0];
+LargeB0[x_, precision_] := N[{{20}}, precision];
 Quiet[insufficientDelta = SpectralPropagate[
-  {largeB0},
+  {LargeB0},
   N[{{1}}, 60],
   {0, 1},
   "Nodes" -> 16,
@@ -340,15 +340,15 @@ Quiet[insufficientDelta = SpectralPropagate[
   "DeltaTolerance" -> 10^-40,
   "MaxDeltaOrder" -> 4
 ]];
-assert["b0-auto-order-fails-closed", insufficientDelta === $Failed];
+CheckAssertion["b0-auto-order-fails-closed", insufficientDelta === $Failed];
 
 (* ---------------------------------------------------------------------- *)
 (* General polynomial-epsilon route                                      *)
 (* ---------------------------------------------------------------------- *)
 
-ClearAll[mixedB0, mixedB1];
-mixedB0[x_, precision_] := N[{{1/3}}, precision];
-mixedB1[x_, precision_] := N[{{2/5}}, precision];
+ClearAll[MixedB0, MixedB1];
+MixedB0[x_, precision_] := N[{{1/3}}, precision];
+MixedB1[x_, precision_] := N[{{2/5}}, precision];
 mixedBoundary = N[{{1, 0, 0, 0}}, 70];
 mixedExpected = N[{{
   Exp[1/3],
@@ -358,7 +358,7 @@ mixedExpected = N[{{
 }}, 70];
 
 mixedUnified = SpectralPropagate[
-  {mixedB0, mixedB1},
+  {MixedB0, MixedB1},
   mixedBoundary,
   {0, 1},
   "Nodes" -> 22,
@@ -367,7 +367,7 @@ mixedUnified = SpectralPropagate[
   "ParallelEvaluation" -> False
 ];
 mixedDirect = SpectralPropagatePolynomialEpsilon[
-  {mixedB0, mixedB1},
+  {MixedB0, MixedB1},
   mixedBoundary,
   {0, 1},
   "Nodes" -> 22,
@@ -375,16 +375,16 @@ mixedDirect = SpectralPropagatePolynomialEpsilon[
   "WorkingPrecisionA" -> 90,
   "ParallelEvaluation" -> False
 ];
-assert[
+CheckAssertion[
   "mixed-route-preserves-noncanonical-algorithm",
   mixedUnified =!= $Failed && mixedDirect =!= $Failed &&
   ListQ[mixedUnified[[6]]] &&
   mixedUnified[[6, 1]] === "PolynomialEpsilonActiveSupport" &&
-  maxError[mixedUnified[[3]], mixedDirect[[3]]] < 10^-60 &&
+  MaxError[mixedUnified[[3]], mixedDirect[[3]]] < 10^-60 &&
   (* At 22 Lobatto nodes the copied non-canonical core has about 42 correct
      decimal digits on this fixture.  The tighter equality above is the actual
      regression check for the new dispatch layer. *)
-  maxError[mixedUnified[[3]], mixedExpected] < 10^-40
+  MaxError[mixedUnified[[3]], mixedExpected] < 10^-40
 ];
 
 (* Literal constant matrices exercise the normalization adapter. *)
@@ -397,19 +397,19 @@ constantMixed = SpectralPropagate[
   "WorkingPrecisionA" -> 90,
   "ParallelEvaluation" -> False
 ];
-assert[
+CheckAssertion[
   "constant-polynomial-matrix-adapter",
   constantMixed =!= $Failed &&
-  maxError[constantMixed[[3]], mixedExpected] < 10^-40
+  MaxError[constantMixed[[3]], mixedExpected] < 10^-40
 ];
 
 (* Mixed routes must accept the canonical keyword-precision convention too;
    this is handled by MatrixAdapters rather than by changing the old solver. *)
-ClearAll[keywordB0, keywordB1];
-keywordB0[x_, "Precision" -> p_] := N[{{1/3}}, p];
-keywordB1[x_, "Precision" -> p_] := N[{{2/5}}, p];
+ClearAll[KeywordB0, KeywordB1];
+KeywordB0[x_, "Precision" -> p_] := N[{{1/3}}, p];
+KeywordB1[x_, "Precision" -> p_] := N[{{2/5}}, p];
 keywordMixed = SpectralPropagate[
-  {keywordB0, keywordB1},
+  {KeywordB0, KeywordB1},
   mixedBoundary,
   {0, 1},
   "Nodes" -> 22,
@@ -417,26 +417,26 @@ keywordMixed = SpectralPropagate[
   "WorkingPrecisionA" -> 90,
   "ParallelEvaluation" -> False
 ];
-assert[
+CheckAssertion[
   "mixed-route-accepts-keyword-precision-evaluators",
   keywordMixed =!= $Failed &&
-  maxError[keywordMixed[[3]], mixedExpected] < 10^-40
+  MaxError[keywordMixed[[3]], mixedExpected] < 10^-40
 ];
 
 (* A FORM/FLINT-style batch evaluator returns every epsilon coefficient matrix
    in one call.  Explicit EpsilonDegree must route it through the unified
    non-canonical entry without splitting it into repeated evaluator calls. *)
-ClearAll[polynomialScalar, polynomialBatch];
+ClearAll[PolynomialScalar, PolynomialBatch];
 polynomialBatchCallCount = 0;
-polynomialScalar[x_, requestedPrecision_] := N[
+PolynomialScalar[x_, requestedPrecision_] := N[
   {{{1/5}}, {{2/7}}}, requestedPrecision
 ];
-polynomialBatch[points_, requestedPrecision_, threads_] := (
+PolynomialBatch[points_, requestedPrecision_, threads_] := (
   polynomialBatchCallCount++;
-  polynomialScalar[#, requestedPrecision] & /@ points
+  PolynomialScalar[#, requestedPrecision] & /@ points
 );
 polynomialNodeEvaluator = CHESSNodeEvaluator[
-  polynomialScalar, polynomialBatch
+  PolynomialScalar, PolynomialBatch
 ];
 unifiedPolynomialBatch = SpectralPropagate[
   polynomialNodeEvaluator, {{1}}, {0, 1},
@@ -457,14 +457,14 @@ directPolynomialBatch = SpectralPropagatePolynomialEpsilon[
   "ParallelEvaluation" -> True,
   "ParallelKernels" -> 2
 ];
-ClearAll[wrongDimensionPolynomialBatch];
-wrongDimensionPolynomialBatch[points_, requestedPrecision_, threads_] :=
+ClearAll[WrongDimensionPolynomialBatch];
+WrongDimensionPolynomialBatch[points_, requestedPrecision_, threads_] :=
   ConstantArray[
     N[{{{1/5}}, (2/7) IdentityMatrix[2]}, requestedPrecision],
     Length[points]
   ];
 wrongDimensionPolynomialResult = Quiet @ SpectralPropagate[
-  CHESSNodeEvaluator[polynomialScalar, wrongDimensionPolynomialBatch],
+  CHESSNodeEvaluator[PolynomialScalar, WrongDimensionPolynomialBatch],
   IdentityMatrix[2],
   {0, 1},
   "Nodes" -> 8,
@@ -472,25 +472,25 @@ wrongDimensionPolynomialResult = Quiet @ SpectralPropagate[
   "WorkingPrecisionA" -> 60,
   "EpsilonDegree" -> 1
 ];
-assert[
+CheckAssertion[
   "unified-polynomial-batch-evaluator-route",
   unifiedPolynomialBatch =!= $Failed && directPolynomialBatch =!= $Failed &&
   unifiedPolynomialBatchCallCount === 1 &&
   polynomialBatchCallCount === 2 &&
   wrongDimensionPolynomialResult === $Failed &&
-  maxError[unifiedPolynomialBatch[[3]], directPolynomialBatch[[3]]] < 10^-50
+  MaxError[unifiedPolynomialBatch[[3]], directPolynomialBatch[[3]]] < 10^-50
 ];
 
 (* A coefficient that fails only in the second segment checks the historical
    non-canonical loop boundary.  The whole propagation must fail, rather than
    returning the first segment with success-shaped metadata. *)
-ClearAll[secondSegmentB0, secondSegmentB1];
-secondSegmentB0[x_, p_] := If[
+ClearAll[SecondSegmentB0, SecondSegmentB1];
+SecondSegmentB0[x_, p_] := If[
   TrueQ[x > 11/20], $Failed, N[{{1/3}}, p]
 ];
-secondSegmentB1[x_, p_] := N[{{2/5}}, p];
+SecondSegmentB1[x_, p_] := N[{{2/5}}, p];
 Quiet[secondSegmentFailure = SpectralPropagate[
-  {secondSegmentB0, secondSegmentB1},
+  {SecondSegmentB0, SecondSegmentB1},
   mixedBoundary,
   {0, 1},
   "Segments" -> 2,
@@ -499,7 +499,7 @@ Quiet[secondSegmentFailure = SpectralPropagate[
   "WorkingPrecisionA" -> 80,
   "ParallelEvaluation" -> False
 ]];
-assert[
+CheckAssertion[
   "noncanonical-later-segment-failure-propagates",
   secondSegmentFailure === $Failed
 ];
@@ -508,7 +508,7 @@ assert[
    it, while the recursive segment call must remove the old value before adding
    Segments->1; otherwise the solver recurses indefinitely. *)
 mixedDelayedSegments = SpectralPropagate[
-  {mixedB0, mixedB1},
+  {MixedB0, MixedB1},
   mixedBoundary,
   {0, 1},
   "Segments" :> 2,
@@ -517,7 +517,7 @@ mixedDelayedSegments = SpectralPropagate[
   "WorkingPrecisionA" -> 80,
   "ParallelEvaluation" -> False
 ];
-assert[
+CheckAssertion[
   "noncanonical-rule-delayed-segments-terminate",
   mixedDelayedSegments =!= $Failed &&
   mixedDelayedSegments[[6]] === "PolynomialEpsilonSegments"
@@ -528,37 +528,37 @@ assert[
 (* ---------------------------------------------------------------------- *)
 
 Quiet[badSegments = SpectralPropagate[
-  {scalarB0}, {{1}}, {0, 1}, "Segments" -> 0
+  {ScalarB0}, {{1}}, {0, 1}, "Segments" -> 0
 ]];
 Quiet[badDeltaOrder = SpectralPropagate[
-  {scalarB0}, {{1}}, {0, 1}, "DeltaOrder" -> -1
+  {ScalarB0}, {{1}}, {0, 1}, "DeltaOrder" -> -1
 ]];
 Quiet[b0Endpoint = SpectralPropagate[
-  {scalarB0}, {{1}}, {0, 1}, "RegularizedEndpoints" -> {"Right"}
+  {ScalarB0}, {{1}}, {0, 1}, "RegularizedEndpoints" -> {"Right"}
 ]];
 Quiet[b0EndpointData = SpectralPropagate[
-  {scalarB0}, {{1}}, {0, 1}, "EndpointData" -> {1 -> {}}
+  {ScalarB0}, {{1}}, {0, 1}, "EndpointData" -> {1 -> {}}
 ]];
 Quiet[canonicalEndpointData = SpectralPropagate[
-  {0, twoArgumentB1}, canonicalBoundary, {0, 1},
+  {0, TwoArgumentB1}, canonicalBoundary, {0, 1},
   "EndpointData" -> {1 -> {}}
 ]];
 Quiet[mixedOrphanEndpointData = SpectralPropagate[
-  {mixedB0, mixedB1}, mixedBoundary, {0, 1},
+  {MixedB0, MixedB1}, mixedBoundary, {0, 1},
   "EndpointData" -> {1 -> {}}
 ]];
 Quiet[mixedSegmentedEndpoint = SpectralPropagate[
-  {mixedB0, mixedB1}, mixedBoundary, {0, 1},
+  {MixedB0, MixedB1}, mixedBoundary, {0, 1},
   "Segments" -> 2,
   "RegularizedEndpoints" -> {"Right"},
   "EndpointData" -> {1 -> {}}
 ]];
 Quiet[mixedOutsideEndpoint = SpectralPropagate[
-  {mixedB0, mixedB1}, mixedBoundary, {0, 1},
+  {MixedB0, MixedB1}, mixedBoundary, {0, 1},
   "RegularizedEndpoints" -> {2},
   "EndpointData" -> {2 -> {}}
 ]];
-assert[
+CheckAssertion[
   "invalid-and-unsupported-routes-fail-closed",
   badSegments === $Failed && badDeltaOrder === $Failed &&
   b0Endpoint === $Failed && b0EndpointData === $Failed &&
@@ -570,11 +570,11 @@ assert[
 
 (* User-facing conversion helpers must produce the same polynomial batch
    contract from function lists and from explicit path-variable expressions. *)
-ClearAll[adapterB0, adapterB1, adapterFailure, adapterT];
-adapterB0[x_, p_] := N[{{1/3 + x/10}}, p];
-adapterB1[x_, p_] := N[{{2/5 - x/20}}, p];
-adapterFailure[x_, p_] := If[x > 2/5, IdentityMatrix[2], N[{{1}}, p]];
-functionAdapter = CHESSNativeMatrixAdapter[{adapterB0, adapterB1}, 1];
+ClearAll[AdapterB0, AdapterB1, AdapterFailure, adapterT];
+AdapterB0[x_, p_] := N[{{1/3 + x/10}}, p];
+AdapterB1[x_, p_] := N[{{2/5 - x/20}}, p];
+AdapterFailure[x_, p_] := If[x > 2/5, IdentityMatrix[2], N[{{1}}, p]];
+functionAdapter = CHESSNativeMatrixAdapter[{AdapterB0, AdapterB1}, 1];
 expressionAdapter = CHESSNativeMatrixAdapter[
   {{{1/3 + adapterT/10}}, {{2/5 - adapterT/20}}}, adapterT, 1
 ];
@@ -587,39 +587,39 @@ expressionAdapterValues = CHESSNodeEvaluatorBatch[expressionAdapter][
 badExpressionAdapter = Quiet @ CHESSNativeMatrixAdapter[
   {{{1}}, IdentityMatrix[2]}, adapterT, 1
 ];
-failingAdapter = CHESSNativeMatrixAdapter[{adapterFailure}, 1];
+failingAdapter = CHESSNativeMatrixAdapter[{AdapterFailure}, 1];
 failingAdapterValues = Quiet @ CHESSNodeEvaluatorBatch[failingAdapter][
   {1/4, 1/2}, 60, 1
 ];
-badFLINTAdapter = Quiet @ CHESSNativeFLINTMatrixAdapter[
+badFlintAdapter = Quiet @ CHESSNativeFlintMatrixAdapter[
   "missing", "missing", Identity, Identity, 0
 ];
-assert[
+CheckAssertion[
   "native-matrix-adapter-function-and-expression-formats",
   CHESSNodeEvaluatorQ[functionAdapter] &&
   CHESSNodeEvaluatorQ[expressionAdapter] &&
   functionAdapterValues =!= $Failed &&
   expressionAdapterValues =!= $Failed &&
-  maxError[functionAdapterValues, expressionAdapterValues] < 10^-55 &&
+  MaxError[functionAdapterValues, expressionAdapterValues] < 10^-55 &&
   badExpressionAdapter === $Failed && failingAdapterValues === $Failed &&
-  badFLINTAdapter === $Failed
+  badFlintAdapter === $Failed
 ];
 
-hashHex[file_] := IntegerString[FileHash[file, "SHA256"], 16, 64];
-assert[
+HashHex[file_] := IntegerString[FileHash[file, "SHA256"], 16, 64];
+CheckAssertion[
   "original-sources-remain-untouched",
-  hashHex["/home/liuyuanche/Program/Chebyshev/Chess_release/Chess.wl"] ===
+  HashHex["/home/liuyuanche/Program/Chebyshev/Chess_release/Chess.wl"] ===
     "036a670f5983992dbe70c6b335ff6b498a0e1a868b8de9824b9918092c97d583" &&
-  hashHex["/home/liuyuanche/Program/Chebyshev_nonUT/ChessNonCanonical.wl"] ===
+  HashHex["/home/liuyuanche/Program/Chebyshev_nonUT/ChessNonCanonical.wl"] ===
     "48294b347777fca190b062b53e2fe2235de9fe05660d9ab0957a008150e54035"
 ];
-assert[
+CheckAssertion[
   "canonical-core-is-verbatim-copy",
-  hashHex[FileNameJoin[{testRoot, "Core", "Canonical.wl"}]] ===
+  HashHex[FileNameJoin[{testRoot, "Core", "Canonical.wl"}]] ===
     "036a670f5983992dbe70c6b335ff6b498a0e1a868b8de9824b9918092c97d583"
 ];
 
-(* A malformed assert call otherwise remains unevaluated and can make a key
+(* A malformed CheckAssertion call otherwise remains unevaluated and can make a key
    check disappear without affecting the process exit code. *)
 If[assertionCount =!= expectedAssertionCount,
   AppendTo[failures, "assertion-count"];

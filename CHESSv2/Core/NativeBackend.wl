@@ -107,7 +107,7 @@ CHESSNativeInstall[] := Module[{},
 
 CHESSNativeUninstall[] := Module[{},
   If[MatchQ[$CHESSNativeLink, _LinkObject],
-    Quiet @ Check[CHESSNativeBackend`Link`Private`ChessNativeClear[], Null];
+    Quiet @ Check[CHESSNativeBackend`Link`Private`CHESSNativeClear[], Null];
     Quiet @ Check[Uninstall[$CHESSNativeLink], Null]
   ];
   $CHESSNativeLink = None;
@@ -119,7 +119,7 @@ CHESSNativeUninstall[] := Module[{},
    a later Prepare does not pay process startup again. *)
 CHESSNativeClear[] := Module[{},
   If[MatchQ[$CHESSNativeLink, _LinkObject],
-    Quiet @ Check[CHESSNativeBackend`Link`Private`ChessNativeClear[], Null]
+    Quiet @ Check[CHESSNativeBackend`Link`Private`CHESSNativeClear[], Null]
   ];
   $CHESSNativeGeneration++;
   Null
@@ -286,7 +286,7 @@ CHESSNativePrepare[
   {
     nodesOption, precision, precisionA, parallelSpec, kernelSpec, threads,
     collocation, nodes, scalarMatrix, evaluator, nodeMatrices, setupFile,
-    stream, rules, entries, loadSeconds, loadResult, tag, cleanup
+    stream, rules, entries, loadSeconds, loadResult, tag, Cleanup
   },
   nodesOption = CHESSNativeOptionValue[canonicalRules, "Nodes", 48];
   precision = CHESSNativeOptionValue[canonicalRules, "Precision", 160];
@@ -340,7 +340,7 @@ CHESSNativePrepare[
     "chess-native-" <> ToString[$ProcessID] <> "-" <> tag <> ".dat"
   }];
   stream = None;
-  cleanup[] := (
+  Cleanup[] := (
     If[Head[stream] === OutputStream,
       Quiet @ Check[Close[stream], Null];
       stream = None
@@ -354,7 +354,7 @@ CHESSNativePrepare[
       OpenWrite[setupFile, PageWidth -> Infinity], $Failed
     ];
     If[Head[stream] =!= OutputStream,
-      cleanup[];
+      Cleanup[];
       Return[$Failed]
     ];
     WriteString[
@@ -385,12 +385,12 @@ CHESSNativePrepare[
     Close[stream];
     stream = None;
     {loadSeconds, loadResult} = AbsoluteTiming[
-      CHESSNativeBackend`Link`Private`ChessNativeLoad[setupFile]
+      CHESSNativeBackend`Link`Private`CHESSNativeLoad[setupFile]
     ],
-    cleanup[];
+    Cleanup[];
     Abort[]
   ];
-  cleanup[];
+  Cleanup[];
   If[loadResult =!= Null, Return[$Failed]];
   $CHESSNativeGeneration++;
   <|
@@ -419,7 +419,7 @@ CHESSNativePolynomialPrepare[
     nodesOption, precision, precisionA, parallelSpec, kernelSpec, degree,
     dimension, threads, collocation, nodes, scalarMatrix, ordinaryValues,
     matricesByNode, zeroMatrices, b0Nodes, active, flintBits, setupFile, stream,
-    loadSeconds, loadResult, tag, cleanup, node, power
+    loadSeconds, loadResult, tag, Cleanup, node, power
   },
   nodesOption = CHESSNativeOptionValue[rules, "Nodes", 48];
   precision = CHESSNativeOptionValue[rules, "Precision", 160];
@@ -496,7 +496,7 @@ CHESSNativePolynomialPrepare[
       ".dat"
   }];
   stream = None;
-  cleanup[] := (
+  Cleanup[] := (
     If[Head[stream] === OutputStream,
       Quiet @ Check[Close[stream], Null];
       stream = None
@@ -510,7 +510,7 @@ CHESSNativePolynomialPrepare[
       OpenWrite[setupFile, PageWidth -> Infinity], $Failed
     ];
     If[Head[stream] =!= OutputStream,
-      cleanup[];
+      Cleanup[];
       Return[$Failed]
     ];
     WriteString[
@@ -540,12 +540,12 @@ CHESSNativePolynomialPrepare[
     Close[stream];
     stream = None;
     {loadSeconds, loadResult} = AbsoluteTiming[
-      CHESSNativeBackend`Link`Private`ChessNativeLoad[setupFile]
+      CHESSNativeBackend`Link`Private`CHESSNativeLoad[setupFile]
     ],
-    cleanup[];
+    Cleanup[];
     Abort[]
   ];
-  cleanup[];
+  Cleanup[];
   If[loadResult =!= Null, Return[$Failed]];
   $CHESSNativeGeneration++;
   <|
@@ -604,7 +604,7 @@ CHESSNativeRun[
       ],
       " "
     ];
-    raw = CHESSNativeBackend`Link`Private`ChessNativeRun[
+    raw = CHESSNativeBackend`Link`Private`CHESSNativeRun[
       boundaryText, layers, columns, If[TrueQ[cacheStates], 1, 0]
     ];
   ][[1]];
@@ -675,7 +675,7 @@ CHESSNativePolynomialRun[
       ],
       " "
     ];
-    raw = CHESSNativeBackend`Link`Private`ChessNativePolynomialRun[
+    raw = CHESSNativeBackend`Link`Private`CHESSNativePolynomialRun[
       boundaryText, layers, columns, If[TrueQ[cacheStates], 1, 0]
     ];
   ][[1]];
@@ -786,7 +786,7 @@ CHESSNativeFetch[
   ];
   precision = Lookup[handle, "Precision"];
   dimension = Lookup[handle, "Dimension"];
-  raw = CHESSNativeBackend`Link`Private`ChessNativeFetch[mode, selectedOrder];
+  raw = CHESSNativeBackend`Link`Private`CHESSNativeFetch[mode, selectedOrder];
   If[!StringQ[raw], Return[$Failed]];
   tokens = StringSplit[raw];
   If[Length[tokens] < 7 || First[tokens] =!= "CHESSFETCH1", Return[$Failed]];

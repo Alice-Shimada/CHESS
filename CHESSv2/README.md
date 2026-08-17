@@ -20,6 +20,11 @@ Get["/path/to/CHESS/CHESSv2/CHESSv2.wl"];
 Use `SpectralPropagate` directly. The experimental version string is stored in
 `$CHESSv2Version`.
 
+Function names use PascalCase while preserving `CHESS` as an uppercase project
+acronym and spelling the library name as `Flint`, for example
+`CHESSFlintRunSLP`. The former `CHESSFLINT*` spellings are intentionally not
+kept as compatibility aliases on the experimental branch.
+
 ## Equation convention and routing
 
 CHESSv2 solves
@@ -111,7 +116,7 @@ implement its own parallelism when useful.
 To move large node expression evaluation to FORM/FLINT, use:
 
 ```wl
-nativeEvaluator = CHESSNativeFLINTMatrixAdapter[
+nativeEvaluator = CHESSNativeFlintMatrixAdapter[
   evaluatorExecutable,
   preparedSLP,
   coordinateFunction,
@@ -132,7 +137,7 @@ definition fingerprint.
 `Core/FLINTBatchEvaluation.wl` exposes:
 
 ```wl
-CHESSFLINTRunSLP[executable, slpFile, pointRows, precision, threads]
+CHESSFlintRunSLP[executable, slpFile, pointRows, precision, threads]
 ```
 
 FORM may optimize large exact expressions into a straight-line program. FLINT

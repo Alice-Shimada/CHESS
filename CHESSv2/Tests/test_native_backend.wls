@@ -14,21 +14,21 @@ testRoot = DirectoryName[DirectoryName[ExpandFileName[$InputFileName]]];
 Get[FileNameJoin[{testRoot, "CHESSv2.wl"}]];
 
 failures = {};
-assert[name_String, condition_] := If[
+CheckAssertion[name_String, condition_] := If[
   TrueQ[condition],
   Print["PASS: ", name],
   AppendTo[failures, name];
   Print["FAIL: ", name]
 ];
-maxError[a_, b_] := Max[Abs[Flatten[N[a - b, 50]]]];
+MaxError[a_, b_] := Max[Abs[Flatten[N[a - b, 50]]]];
 
 If[!CHESSNativeAvailableQ[],
   Print["FAIL: native-executable-missing"];
   Exit[2]
 ];
 
-ClearAll[scalarOperator];
-scalarOperator[x_, precision_] := N[{{3/7}}, precision];
+ClearAll[ScalarOperator];
+ScalarOperator[x_, precision_] := N[{{3/7}}, precision];
 precision = 70;
 degree = 20;
 rules = {
@@ -39,8 +39,8 @@ rules = {
   "ParallelKernels" -> 1
 };
 
-handle = CHESSNativePrepare[scalarOperator, 1, {0, 1}, rules];
-assert["native-prepare", AssociationQ[handle]];
+handle = CHESSNativePrepare[ScalarOperator, 1, {0, 1}, rules];
+CheckAssertion["native-prepare", AssociationQ[handle]];
 
 canonicalBoundary = N[{{1} ~Join~ ConstantArray[0, degree]}, precision];
 canonicalRun = CHESSNativeRun[handle, {Transpose[canonicalBoundary]}];
@@ -53,15 +53,15 @@ canonicalExpected = N[
   {Table[(3/7)^order/order!, {order, 0, degree}]},
   precision
 ];
-assert[
+CheckAssertion[
   "native-canonical-full-result",
   canonicalResult =!= $Failed &&
   Dimensions[canonicalResult[[2]]] === {33, degree + 1} &&
-  maxError[canonicalResult[[3]], canonicalExpected] < 10^-60
+  MaxError[canonicalResult[[3]], canonicalExpected] < 10^-60
 ];
 
 publicNative = SpectralPropagate[
-  {0, scalarOperator},
+  {0, ScalarOperator},
   canonicalBoundary,
   {0, 1},
   Sequence @@ rules,
@@ -70,7 +70,7 @@ publicNative = SpectralPropagate[
   "ResultData" -> "Full"
 ];
 publicEndpointOnly = SpectralPropagate[
-  {0, scalarOperator},
+  {0, ScalarOperator},
   canonicalBoundary,
   {0, 1},
   Sequence @@ rules,
@@ -78,13 +78,13 @@ publicEndpointOnly = SpectralPropagate[
   "NativeHandle" -> handle,
   "ResultData" -> "Endpoint"
 ];
-assert[
+CheckAssertion[
   "unified-spectral-propagate-native-canonical",
   publicNative =!= $Failed && publicEndpointOnly =!= $Failed &&
   publicNative[[6, 2]] === "Native" &&
   MissingQ[publicEndpointOnly[[2]]] &&
-  maxError[publicNative[[3]], canonicalExpected] < 10^-60 &&
-  maxError[publicEndpointOnly[[3]], canonicalExpected] < 10^-60
+  MaxError[publicNative[[3]], canonicalExpected] < 10^-60 &&
+  MaxError[publicEndpointOnly[[3]], canonicalExpected] < 10^-60
 ];
 
 (* Two independent physical columns exercise the batched B0/fake-delta data
@@ -105,14 +105,14 @@ fakeExpected = N[
   First[physicalBoundary] Sum[(3/7)^order/order!, {order, 0, degree}],
   precision
 ];
-assert[
+CheckAssertion[
   "native-batched-physical-columns-delta-sum",
   fakeEndpoint =!= $Failed &&
-  maxError[fakeEndpoint, fakeExpected] < 10^-60
+  MaxError[fakeEndpoint, fakeExpected] < 10^-60
 ];
 
 publicFakeDelta = SpectralPropagate[
-  {scalarOperator},
+  {ScalarOperator},
   physicalBoundary,
   {0, 1},
   Sequence @@ rules,
@@ -123,7 +123,7 @@ publicFakeDelta = SpectralPropagate[
   "ResultData" -> "Full"
 ];
 publicFakeDeltaEndpoint = SpectralPropagate[
-  {scalarOperator},
+  {ScalarOperator},
   physicalBoundary,
   {0, 1},
   Sequence @@ rules,
@@ -134,7 +134,7 @@ publicFakeDeltaEndpoint = SpectralPropagate[
   "ResultData" -> "Endpoint"
 ];
 mathematicaFakeDelta = SpectralPropagate[
-  {scalarOperator},
+  {ScalarOperator},
   physicalBoundary,
   {0, 1},
   Sequence @@ rules,
@@ -142,22 +142,22 @@ mathematicaFakeDelta = SpectralPropagate[
   "DeltaTolerance" -> 10^-50,
   "MaxDeltaOrder" -> 64
 ];
-assert[
+CheckAssertion[
   "unified-native-b0-auto-order",
   publicFakeDelta =!= $Failed && publicFakeDeltaEndpoint =!= $Failed &&
   mathematicaFakeDelta =!= $Failed &&
   publicFakeDelta[[6, 3]] === "Native" &&
   MissingQ[publicFakeDeltaEndpoint[[2]]] &&
-  maxError[publicFakeDelta[[3]], mathematicaFakeDelta[[3]]] < 10^-55 &&
-  maxError[publicFakeDeltaEndpoint[[3]], mathematicaFakeDelta[[3]]] < 10^-55
+  MaxError[publicFakeDelta[[3]], mathematicaFakeDelta[[3]]] < 10^-55 &&
+  MaxError[publicFakeDeltaEndpoint[[3]], mathematicaFakeDelta[[3]]] < 10^-55
 ];
 
 (* A prepared handle is an opaque cache for one sampled equation.  Reusing it
    with another evaluator must fail before any native propagation occurs. *)
-ClearAll[wrongOperator];
-wrongOperator[x_, requestedPrecision_] := N[{{1/2}}, requestedPrecision];
+ClearAll[WrongOperator];
+WrongOperator[x_, requestedPrecision_] := N[{{1/2}}, requestedPrecision];
 wrongHandleResult = Quiet @ SpectralPropagate[
-  {wrongOperator}, physicalBoundary, {0, 1},
+  {WrongOperator}, physicalBoundary, {0, 1},
   Sequence @@ rules,
   "NumericalBackend" -> "Native",
   "NativeHandle" -> handle,
@@ -165,7 +165,7 @@ wrongHandleResult = Quiet @ SpectralPropagate[
   "ResultData" -> "Endpoint"
 ];
 invalidMaximumResult = Quiet @ SpectralPropagate[
-  {scalarOperator}, physicalBoundary, {0, 1},
+  {ScalarOperator}, physicalBoundary, {0, 1},
   Sequence @@ rules,
   "NumericalBackend" -> "Native",
   "NativeHandle" -> handle,
@@ -173,7 +173,7 @@ invalidMaximumResult = Quiet @ SpectralPropagate[
   "MaxDeltaOrder" -> 3.5,
   "ResultData" -> "Endpoint"
 ];
-assert[
+CheckAssertion[
   "native-handle-system-binding-and-option-failure",
   wrongHandleResult === $Failed && invalidMaximumResult === $Failed
 ];
@@ -184,7 +184,7 @@ assert[
 linksBeforeReload = Length[Links[]];
 generationBeforeReload = $CHESSNativeGeneration;
 Get[FileNameJoin[{testRoot, "CHESSv2.wl"}]];
-assert[
+CheckAssertion[
   "native-package-reload-preserves-link-ownership",
   Length[Links[]] === linksBeforeReload &&
   $CHESSNativeGeneration === generationBeforeReload &&
@@ -192,38 +192,38 @@ assert[
 ];
 
 (* Reusing the same symbol name after changing its DownValues must also be
-   rejected; hashing only HoldComplete[scalarOperator] would miss this case. *)
-Clear[scalarOperator];
-scalarOperator[x_, requestedPrecision_] := N[{{1/2}}, requestedPrecision];
+   rejected; hashing only HoldComplete[ScalarOperator] would miss this case. *)
+Clear[ScalarOperator];
+ScalarOperator[x_, requestedPrecision_] := N[{{1/2}}, requestedPrecision];
 redefinedSymbolResult = Quiet @ SpectralPropagate[
-  {scalarOperator}, physicalBoundary, {0, 1},
+  {ScalarOperator}, physicalBoundary, {0, 1},
   Sequence @@ rules,
   "NumericalBackend" -> "Native",
   "NativeHandle" -> handle,
   "DeltaOrder" -> degree,
   "ResultData" -> "Endpoint"
 ];
-assert[
+CheckAssertion[
   "native-handle-detects-symbol-redefinition",
   redefinedSymbolResult === $Failed
 ];
-Clear[scalarOperator];
-scalarOperator[x_, requestedPrecision_] := N[{{3/7}}, requestedPrecision];
+Clear[ScalarOperator];
+ScalarOperator[x_, requestedPrecision_] := N[{{3/7}}, requestedPrecision];
 
 (* The dependency fingerprint must be transitive.  Redefining a helper called
    by an otherwise unchanged outer evaluator changes its sampled matrices and
    therefore must invalidate the prepared handle. *)
-ClearAll[helperOperator, outerOperator];
-helperOperator[x_, requestedPrecision_] := N[1/3, requestedPrecision];
-outerOperator[x_, requestedPrecision_] :=
-  {{helperOperator[x, requestedPrecision]}};
-helperHandle = CHESSNativePrepare[outerOperator, 1, {0, 1}, rules];
-Clear[helperOperator];
-helperOperator[x_, requestedPrecision_] := N[1/2, requestedPrecision];
+ClearAll[HelperOperator, OuterOperator];
+HelperOperator[x_, requestedPrecision_] := N[1/3, requestedPrecision];
+OuterOperator[x_, requestedPrecision_] :=
+  {{HelperOperator[x, requestedPrecision]}};
+helperHandle = CHESSNativePrepare[OuterOperator, 1, {0, 1}, rules];
+Clear[HelperOperator];
+HelperOperator[x_, requestedPrecision_] := N[1/2, requestedPrecision];
 helperRedefinitionResult = If[
   AssociationQ[helperHandle],
   Quiet @ SpectralPropagate[
-    {outerOperator}, physicalBoundary, {0, 1},
+    {OuterOperator}, physicalBoundary, {0, 1},
     Sequence @@ rules,
     "NumericalBackend" -> "Native",
     "NativeHandle" -> helperHandle,
@@ -232,7 +232,7 @@ helperRedefinitionResult = If[
   ],
   Missing["PrepareFailed"]
 ];
-assert[
+CheckAssertion[
   "native-handle-detects-helper-redefinition",
   AssociationQ[helperHandle] && helperRedefinitionResult === $Failed
 ];
@@ -240,16 +240,16 @@ assert[
 (* Options, DefaultValues, and NValues are definition state too.  In
    particular, OptionsPattern can change a sampled matrix while leaving all
    ordinary DownValues text unchanged. *)
-ClearAll[optionOperator];
-Options[optionOperator] = {"Coefficient" -> 1/3};
-optionOperator[x_, requestedPrecision_, OptionsPattern[]] :=
+ClearAll[OptionOperator];
+Options[OptionOperator] = {"Coefficient" -> 1/3};
+OptionOperator[x_, requestedPrecision_, OptionsPattern[]] :=
   N[{{OptionValue["Coefficient"]}}, requestedPrecision];
-optionHandle = CHESSNativePrepare[optionOperator, 1, {0, 1}, rules];
-Options[optionOperator] = {"Coefficient" -> 1/2};
+optionHandle = CHESSNativePrepare[OptionOperator, 1, {0, 1}, rules];
+Options[OptionOperator] = {"Coefficient" -> 1/2};
 optionRedefinitionResult = If[
   AssociationQ[optionHandle],
   Quiet @ SpectralPropagate[
-    {optionOperator}, physicalBoundary, {0, 1},
+    {OptionOperator}, physicalBoundary, {0, 1},
     Sequence @@ rules,
     "NumericalBackend" -> "Native",
     "NativeHandle" -> optionHandle,
@@ -258,7 +258,7 @@ optionRedefinitionResult = If[
   ],
   Missing["PrepareFailed"]
 ];
-assert[
+CheckAssertion[
   "native-handle-detects-option-redefinition",
   AssociationQ[optionHandle] && optionRedefinitionResult === $Failed
 ];
@@ -266,15 +266,15 @@ assert[
 (* A separate complex operator forces the MPC branch.  Preparing it also
    invalidates the earlier handle, exercising the single-cache generation
    contract instead of accidentally reusing stale native matrices. *)
-ClearAll[complexOperator];
-complexOperator[x_, requestedPrecision_] :=
+ClearAll[ComplexOperator];
+ComplexOperator[x_, requestedPrecision_] :=
   N[{{2/5 + I/7}}, requestedPrecision];
-complexHandle = CHESSNativePrepare[complexOperator, 1, {0, 1}, rules];
+complexHandle = CHESSNativePrepare[ComplexOperator, 1, {0, 1}, rules];
 complexBoundary = N[{{1} ~Join~ ConstantArray[0, degree]}, precision];
 complexResult = If[
   AssociationQ[complexHandle],
   SpectralPropagate[
-    {0, complexOperator}, complexBoundary, {0, 1},
+    {0, ComplexOperator}, complexBoundary, {0, 1},
     Sequence @@ rules,
     "NumericalBackend" -> "Native",
     "NativeHandle" -> complexHandle,
@@ -286,18 +286,18 @@ complexExpected = N[
   {Table[(2/5 + I/7)^order/order!, {order, 0, degree}]},
   precision
 ];
-assert[
+CheckAssertion[
   "native-complex-mpc-and-handle-generation",
   complexResult =!= $Failed &&
   !CHESSNativeHandleValidQ[handle] &&
-  maxError[complexResult[[3]], complexExpected] < 10^-60
+  MaxError[complexResult[[3]], complexExpected] < 10^-60
 ];
 
 (* A genuine B0+B1+B2 system exercises the direct active-support LU.  The
    complex B0 entry forces the FLINT nfloat-complex factorization; no fake-delta
    expansion is involved. *)
-ClearAll[mixedB0, mixedB1, mixedB2];
-mixedB0[x_, requestedPrecision_] := N[
+ClearAll[MixedB0, MixedB1, MixedB2];
+MixedB0[x_, requestedPrecision_] := N[
   {
     {1/5 + x/20, 0, I (1 + x)/11},
     {0, 0, 0},
@@ -305,16 +305,16 @@ mixedB0[x_, requestedPrecision_] := N[
   },
   requestedPrecision
 ];
-mixedB1[x_, requestedPrecision_] := N[
+MixedB1[x_, requestedPrecision_] := N[
   {{2/9, x/29, 0}, {1/17, -1/8, x/31}, {0, 1/37, 1/10}},
   requestedPrecision
 ];
-mixedB2[x_, requestedPrecision_] := N[
+MixedB2[x_, requestedPrecision_] := N[
   {{0, 1/19, 0}, {-1/23, 0, 1/41}, {1/43, 0, 0}},
   requestedPrecision
 ];
 mixedEvaluator = CHESSNativeMatrixAdapter[
-  {mixedB0, mixedB1, mixedB2}, 3
+  {MixedB0, MixedB1, MixedB2}, 3
 ];
 mixedBoundary = N[
   {{1, 1/3, 0, 0}, {-2, 0, 1/5, 0}, {1/7, -1/9, 0, 1/11}},
@@ -356,20 +356,20 @@ mixedNativeEndpointRequest = Quiet @ SpectralPropagate[
   "RegularizedEndpoints" -> {0}
 ];
 mixedListNative = Quiet @ SpectralPropagate[
-  {mixedB0, mixedB1, mixedB2}, mixedBoundary, {0, 1},
+  {MixedB0, MixedB1, MixedB2}, mixedBoundary, {0, 1},
   Sequence @@ mixedRules,
   "NumericalBackend" -> "Native"
 ];
-assert[
+CheckAssertion[
   "native-direct-mixed-polynomial-complex",
   AssociationQ[mixedHandle] && mixedMathematica =!= $Failed &&
   mixedNative =!= $Failed && mixedNativeFull =!= $Failed &&
   mixedNative[[6, 4]] === "DirectCoupledLU" &&
   Dimensions[mixedNativeFull[[2]]] === {21, 12} &&
   mixedNativeEndpointRequest === $Failed && mixedListNative === $Failed &&
-  maxError[mixedNativeFull[[2]], mixedMathematica[[2]]] < 10^-55 &&
-  maxError[mixedNativeFull[[3]], mixedMathematica[[3]]] < 10^-55 &&
-  maxError[mixedNative[[3]], mixedMathematica[[3]]] < 10^-55
+  MaxError[mixedNativeFull[[2]], mixedMathematica[[2]]] < 10^-55 &&
+  MaxError[mixedNativeFull[[3]], mixedMathematica[[3]]] < 10^-55 &&
+  MaxError[mixedNative[[3]], mixedMathematica[[3]]] < 10^-55
 ];
 
 CHESSNativeUninstall[];
