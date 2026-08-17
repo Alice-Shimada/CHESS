@@ -4,7 +4,7 @@
    process-specific SLP.  This fixture writes three exact one-limb NFLOAT01
    numbers and checks the package decoder.  If the experimental evaluator paths
    are provided through the environment, it additionally performs one real
-   native FLINT call. *)
+   FLINT batch-evaluation call. *)
 
 ClearAll["Global`*"];
 $HistoryLength = 0;
@@ -102,21 +102,21 @@ evaluator = Environment["CHESSV2_FLINT_EVALUATOR"];
 slp = Environment["CHESSV2_FLINT_SLP"];
 If[StringQ[evaluator] && StringQ[slp] &&
    CHESSFLINTAvailableQ[evaluator, slp],
-  native = CHESSFLINTRunSLP[
+  flintResult = CHESSFLINTRunSLP[
     evaluator, slp, {{1, 2, 3, 4, 5, 6, 7}}, 40, 1
   ];
   assert[
-    "flint-existing-slp-native-smoke",
-    AssociationQ[native] && native["PointCount"] === 1 &&
-    native["ValueCount"] > 0 && Dimensions[native["Values"]] ===
-      {1, native["ValueCount"]}
+    "flint-existing-slp-batch-smoke",
+    AssociationQ[flintResult] && flintResult["PointCount"] === 1 &&
+    flintResult["ValueCount"] > 0 && Dimensions[flintResult["Values"]] ===
+      {1, flintResult["ValueCount"]}
   ],
-  Print["SKIP: flint-existing-slp-native-smoke (set CHESSV2_FLINT_EVALUATOR and CHESSV2_FLINT_SLP)"]
+  Print["SKIP: flint-existing-slp-batch-smoke (set CHESSV2_FLINT_EVALUATOR and CHESSV2_FLINT_SLP)"]
 ];
 
 If[failures === {},
-  Print["CHESSV2_NATIVE_EVALUATION_TESTS_PASSED"];
+  Print["CHESSV2_FLINT_EVALUATION_TESTS_PASSED"];
   Exit[0],
-  Print[InputForm[{"CHESSV2_NATIVE_EVALUATION_FAILURES", failures}]];
+  Print[InputForm[{"CHESSV2_FLINT_EVALUATION_FAILURES", failures}]];
   Exit[1]
 ];

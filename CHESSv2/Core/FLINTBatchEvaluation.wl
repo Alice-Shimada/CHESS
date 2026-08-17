@@ -1,7 +1,7 @@
 (* ::Package:: *)
 
 (*
-  NativeEvaluation.wl
+  FLINTBatchEvaluation.wl
 
   Reusable Mathematica side of the FORM -> straight-line program -> FLINT
   nfloat evaluator tested in the non-canonical phenomenology prototype.
@@ -21,7 +21,7 @@
   interface, so FLINT expression evaluation and C++ spectral propagation are
   independent modules and may be enabled separately.
 
-  Compatible native executables implement
+  Compatible FLINT evaluator executables implement
 
       evaluator evaluate SLP POINTS BITS THREADS OUTPUT
 
@@ -65,7 +65,7 @@ CHESSFLINTWorkingBits[
   (Max[20, Ceiling[N[precision]]] + guardDigits) Log[2, 10]
 ];
 
-(* Fixed-point input prevents the native parser from depending on Mathematica's
+(* Fixed-point input prevents the FLINT-side parser from depending on Mathematica's
    *^ exponent notation.  NumberPadding also makes small path coordinates
    explicit instead of silently shortening their precision. *)
 CHESSFLINTDecimalString[value_?NumericQ, digits_Integer?Positive] := ToString[
@@ -162,9 +162,9 @@ Options[CHESSFLINTRunSLP] = {
   "Timeout" -> Infinity
 };
 
-(* Evaluate every row in one native call.  Setup/FORM compilation is outside
+(* Evaluate every row in one FLINT process call.  Setup/FORM compilation is outside
    this hot path: callers should prepare the SLP once, then reuse it for every
-   propagation.  The returned Association keeps native stdout and timing
+   propagation.  The returned Association keeps evaluator stdout and timing
    available for diagnostics without changing the batch evaluator's data. *)
 CHESSFLINTRunSLP[
   executable_String, slpFile_String, pointRows_?MatrixQ,
@@ -275,7 +275,7 @@ CHESSFLINTRunSLP[
     <|
       "Bits" -> bits,
       "Threads" -> threads,
-      "NativeCallSeconds" -> seconds,
+      "FLINTProcessSeconds" -> seconds,
       "StandardOutput" -> Lookup[process, "StandardOutput", ""]
     |>
   ]

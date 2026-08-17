@@ -68,14 +68,27 @@ Bp[t_] := ...
 
 若大矩阵来自 FORM 生成的巨大有理表达式，可用
 `CHESSNodeEvaluator[scalar,batch]` 提供一次计算所有节点的 batch evaluator。
-`Core/NativeEvaluation.wl` 提供通用的
+`Core/FLINTBatchEvaluation.wl` 提供通用的
 `CHESSFLINTRunSLP[executable,slp,pointRows,precision,threads]`：它复用实验性
 non-canonical 后端的 `NFLOAT01` 协议，把 FORM 的 straight-line program 交给
 FLINT `nfloat` 多线程求值。具体变量、SLP 和稀疏矩阵装配仍属于各物理问题，
-不会硬编码进 CHESS。完整接口示例见 `Native/Evaluation/README.md`。
+不会硬编码进 CHESS。完整接口示例见 `FLINT/README.md`。
 默认额外 20 位只是可调的经验 guard digits，不是严格误差界；近极点、严重
 消去或巨大中间量必须提高 `"GuardDigits"`/`"WorkingBits"`，并用更高精度
 重算检查稳定性。任何 FLINT infinity 或 NaN 记录都会失败关闭。
+
+若 batch evaluator 一次返回完整的 `{B0,B1,...}`，通过显式正整数
+`"EpsilonDegree"` 让统一入口选择 non-canonical 路线，同时仍只调用一次
+多点评值：
+
+```wl
+SpectralPropagate[
+  CHESSNodeEvaluator[scalarFallback, flintBatch],
+  boundary,
+  {0, 1},
+  "EpsilonDegree" -> 2
+]
+```
 
 ## 可选 C++ 数值传播
 
@@ -254,16 +267,17 @@ CHESSv2.wl                 唯一加载器
 Core/Canonical.wl          原 canonical 数值内核（逐字复用）
 Core/NonCanonical.wl       原 non-canonical 数值内核（加载路径及失败传播修补）
 Core/MatrixAdapters.wl     三种矩阵调用约定和常数矩阵适配
-Core/NativeEvaluation.wl   FORM/FLINT nfloat 多点评值协议
+Core/FLINTBatchEvaluation.wl  FORM/FLINT nfloat 多点评值协议
 Core/NativeBackend.wl      C++ 传播接口、缓存句柄和结果装配
 Core/FakeDelta.wl          B0 伪 delta 传播及自动阶数估计
 Core/Dispatch.wl           统一 SpectralPropagate 与结构化分派
 Native/Propagation/        MPFR/MPC/OpenMP 传播源代码与 Makefile
-Native/Evaluation/         FLINT evaluator 接口说明
+FLINT/                     FLINT evaluator 接口说明
 Tests/run_all.wls          fresh-kernel 回归测试
 Tests/test_native_backend.wls  编译后端专项测试
-Tests/test_native_evaluation.wls  FLINT 二进制协议及可选真实 SLP 测试
+Tests/test_flint_evaluation.wls  FLINT 二进制协议及可选真实 SLP 测试
 Benchmarks/pbb64_native_vs_mathematica.wls  316 维、64 位传播基准
+Benchmarks/f3_zoia_flint_benchmark.wls  131 维巨大符号 F3/FLINT 基准
 ```
 
 新增模块中保留了较密集的设计注释，特别标出数学约定、索引关系、失败边界
@@ -286,7 +300,7 @@ non-canonical 路由、后段失败传播、算符尺寸检查、`RuleDelayed` �
 
 ```bash
 wolframscript -file CHESSv2/Tests/test_native_backend.wls
-wolframscript -file CHESSv2/Tests/test_native_evaluation.wls
+wolframscript -file CHESSv2/Tests/test_flint_evaluation.wls
 ```
 
 316 维 PBB 基准严格把数据加载和 native 准备排除在传播计时之外，同时单独
@@ -296,3 +310,9 @@ wolframscript -file CHESSv2/Tests/test_native_evaluation.wls
 OMP_NUM_THREADS=8 \
   wolframscript -file CHESSv2/Benchmarks/pbb64_native_vs_mathematica.wls
 ```
+
+Simone Zoia 的 131 维 F3、96 节点、100 位巨大符号方程复现见
+`Benchmarks/F3_ZOIA_FLINT_BENCHMARK.md`。在本机冻结源码的 fresh run 中，
+纯 Mathematica 节点评值墙钟为 435.87 秒；三次 FLINT 完整节点后端为
+36.15--41.11 秒（中位数 39.49 秒），统一入口端到端为 45.86--50.77 秒
+（中位数 49.21 秒）。

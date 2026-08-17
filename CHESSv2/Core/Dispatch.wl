@@ -233,7 +233,7 @@ CHESSRunCanonicalUnified[
    all three call conventions and the boundary-derived dimensions are enforced
    before values enter the historical solver. *)
 CHESSRunNonCanonicalUnified[
-  specs_List, boundary_?MatrixQ, interval_, rules_List, segments_Integer,
+  specs_, boundary_?MatrixQ, interval_, rules_List, segments_Integer,
   regularizedEndpoints_, endpointData_, numericalBackend_, nativeHandle_
 ] := Module[{normalized, nonCanonicalRules, resolvedBackend},
   resolvedBackend = Replace[
@@ -258,7 +258,14 @@ CHESSRunNonCanonicalUnified[
     Message[SpectralPropagate::noncanonicalsegments];
     Return[$Failed]
   ];
-  normalized = CHESSNormalizePolynomialSpec[specs, boundary];
+  (* A CHESSNodeEvaluator with an explicit positive EpsilonDegree already
+     returns the complete {B0,B1,...} list at each node.  Keep that batch
+     evaluator intact so a FORM/FLINT multipoint call is made only once. *)
+  normalized = If[
+    CHESSNodeEvaluatorQ[specs],
+    specs,
+    CHESSNormalizePolynomialSpec[specs, boundary]
+  ];
   If[normalized === $Failed,
     Message[SpectralPropagate::normalize];
     Return[$Failed]
@@ -352,7 +359,7 @@ SpectralPropagate[
 ] := Module[
   {
     rules, segments, regularizedEndpoints, endpointData, canonicalEvaluator,
-    numericalBackend, nativeHandle, resultData
+    numericalBackend, nativeHandle, resultData, epsilonDegree
   },
   If[Dimensions[boundary][[1]] <= 0 || Dimensions[boundary][[2]] <= 0 ||
       !MatrixQ[boundary, NumericQ],
@@ -370,6 +377,19 @@ SpectralPropagate[
   numericalBackend = OptionValue["NumericalBackend"];
   nativeHandle = OptionValue["NativeHandle"];
   resultData = OptionValue["ResultData"];
+  epsilonDegree = OptionValue["EpsilonDegree"];
+  (* Batch evaluators which return polynomial coefficient matrices cannot be
+     classified by their expression head.  An explicit positive degree is the
+     unambiguous signal to retain the evaluator and use the non-canonical core.
+     Without it, legacy CHESSNodeEvaluator objects remain canonical. *)
+  If[
+    CHESSNodeEvaluatorQ[evaluator] &&
+    IntegerQ[epsilonDegree] && epsilonDegree >= 1,
+    Return @ CHESSRunNonCanonicalUnified[
+      evaluator, boundary, interval, rules, segments,
+      regularizedEndpoints, endpointData, numericalBackend, nativeHandle
+    ]
+  ];
   (* SparseArray has head SparseArray rather than List, so a sparse constant
      reaches this generic definition.  Wrap every numerical matrix explicitly;
      otherwise the canonical core would try to call it as a function and can

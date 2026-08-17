@@ -16,7 +16,7 @@ Get[FileNameJoin[{testRoot, "CHESSv2.wl"}]];
 
 failures = {};
 assertionCount = 0;
-expectedAssertionCount = 23;
+expectedAssertionCount = 24;
 assert[name_String, condition_] := If[
   assertionCount++;
   TrueQ[condition],
@@ -421,6 +421,64 @@ assert[
   "mixed-route-accepts-keyword-precision-evaluators",
   keywordMixed =!= $Failed &&
   maxError[keywordMixed[[3]], mixedExpected] < 10^-40
+];
+
+(* A FORM/FLINT-style batch evaluator returns every epsilon coefficient matrix
+   in one call.  Explicit EpsilonDegree must route it through the unified
+   non-canonical entry without splitting it into repeated evaluator calls. *)
+ClearAll[polynomialScalar, polynomialBatch];
+polynomialBatchCallCount = 0;
+polynomialScalar[x_, requestedPrecision_] := N[
+  {{{1/5}}, {{2/7}}}, requestedPrecision
+];
+polynomialBatch[points_, requestedPrecision_, threads_] := (
+  polynomialBatchCallCount++;
+  polynomialScalar[#, requestedPrecision] & /@ points
+);
+polynomialNodeEvaluator = CHESSNodeEvaluator[
+  polynomialScalar, polynomialBatch
+];
+unifiedPolynomialBatch = SpectralPropagate[
+  polynomialNodeEvaluator, {{1}}, {0, 1},
+  "Nodes" -> 12,
+  "Precision" -> 60,
+  "WorkingPrecisionA" -> 70,
+  "EpsilonDegree" -> 1,
+  "ParallelEvaluation" -> True,
+  "ParallelKernels" -> 2
+];
+unifiedPolynomialBatchCallCount = polynomialBatchCallCount;
+directPolynomialBatch = SpectralPropagatePolynomialEpsilon[
+  polynomialNodeEvaluator, {{1}}, {0, 1},
+  "Nodes" -> 12,
+  "Precision" -> 60,
+  "WorkingPrecisionA" -> 70,
+  "EpsilonDegree" -> 1,
+  "ParallelEvaluation" -> True,
+  "ParallelKernels" -> 2
+];
+ClearAll[wrongDimensionPolynomialBatch];
+wrongDimensionPolynomialBatch[points_, requestedPrecision_, threads_] :=
+  ConstantArray[
+    N[{{{1/5}}, (2/7) IdentityMatrix[2]}, requestedPrecision],
+    Length[points]
+  ];
+wrongDimensionPolynomialResult = Quiet @ SpectralPropagate[
+  CHESSNodeEvaluator[polynomialScalar, wrongDimensionPolynomialBatch],
+  IdentityMatrix[2],
+  {0, 1},
+  "Nodes" -> 8,
+  "Precision" -> 50,
+  "WorkingPrecisionA" -> 60,
+  "EpsilonDegree" -> 1
+];
+assert[
+  "unified-polynomial-batch-evaluator-route",
+  unifiedPolynomialBatch =!= $Failed && directPolynomialBatch =!= $Failed &&
+  unifiedPolynomialBatchCallCount === 1 &&
+  polynomialBatchCallCount === 2 &&
+  wrongDimensionPolynomialResult === $Failed &&
+  maxError[unifiedPolynomialBatch[[3]], directPolynomialBatch[[3]]] < 10^-50
 ];
 
 (* A coefficient that fails only in the second segment checks the historical

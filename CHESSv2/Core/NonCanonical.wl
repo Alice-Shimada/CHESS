@@ -73,6 +73,8 @@ SpectralPropagatePolynomialEpsilon::badbatch =
   "The batch coefficient-matrix evaluator returned `1`; expected data for `2` ordinary nodes.";
 SpectralPropagatePolynomialEpsilon::baddegree =
   "The matrix evaluator returned only `1` epsilon-power matrices, but degree `2` was requested.";
+SpectralPropagatePolynomialEpsilon::baddim =
+  "The batch evaluator returned a non-numeric or dimensionally incompatible coefficient matrix at collocation node `1`; expected `2` by `2`.";
 SpectralPropagatePolynomialEpsilon::solvefail =
   "Linear solve failed at epsilon coefficient `1`.";
 SpectralPropagatePolynomialEpsilon::endpoint =
@@ -303,7 +305,7 @@ SpectralPropagatePolynomialEpsilon[matrixSpec_, y0_, {x0_, x1_}, opts : OptionsP
     endpointIndexData, endpointDatum, endpointIndices, leftEndpointRegularized,
     coeffDerivatives, zRows, sj, endpointDataAt, jpos, batchEvaluatorQ,
     batchThreadCount, ordinaryIndices, batchValues, zeroMatrixList, index,
-    segmentFailure, coefficientFailure, batchFailure
+    segmentFailure, coefficientFailure, batchFailure, batchNodeValues
   },
   m = OptionValue["Nodes"];
   m = Which[
@@ -481,7 +483,20 @@ SpectralPropagatePolynomialEpsilon[matrixSpec_, y0_, {x0_, x1_}, opts : OptionsP
         ];
         batchFailure = True;
         $Failed,
-        SparseArray[N[#, precA]] & /@ Take[batchValues[[index]], degree + 1]
+        batchNodeValues = Take[batchValues[[index]], degree + 1];
+        If[
+          !And @@ (
+            MatrixQ[#, NumericQ] && Dimensions[#] === {n, n} & /@
+              batchNodeValues
+          ),
+          Message[
+            SpectralPropagatePolynomialEpsilon::baddim,
+            ordinaryIndices[[index]], n
+          ];
+          batchFailure = True;
+          $Failed,
+          SparseArray[N[#, precA]] & /@ batchNodeValues
+        ]
       ],
       {index, Length[batchValues]}
     ];

@@ -15,7 +15,7 @@ The kernel uses:
 - a real-only fast path when both operators and boundary data are real.
 
 FLINT is not used for this linear-algebra kernel. The separate
-`Native/Evaluation` module uses FLINT `nfloat` where it is advantageous: large
+`FLINT` module uses FLINT `nfloat` where it is advantageous: large
 FORM-generated straight-line expressions evaluated at many nodes.
 
 ## Build

@@ -12,14 +12,14 @@ The package function
 CHESSFLINTRunSLP[executable, slpFile, pointRows, precision, threads]
 ```
 
-implements the native protocol already exercised by the experimental
+implements the FLINT batch protocol already exercised by the experimental
 non-canonical phenomenology backend:
 
 ```text
 executable evaluate SLP POINTS BITS THREADS OUTPUT
 ```
 
-`pointRows` is one real coordinate row per path node. The native program writes
+`pointRows` is one real coordinate row per path node. The FLINT evaluator writes
 the little-endian `NFLOAT01` binary format; the result Association contains its
 arbitrary-precision values under `"Values"`.
 
@@ -37,22 +37,30 @@ The FORM program, its input-variable names, and matrix assembly remain local to
 the physics example. A typical adapter is:
 
 ```wl
-batch[nodes_, precision_, threads_] := Module[{coordinates, native},
+batch[nodes_, precision_, threads_] := Module[{coordinates, flintResult},
   coordinates = pathCoordinates /@ nodes;
-  native = CHESSFLINTRunSLP[
+  flintResult = CHESSFLINTRunSLP[
     evaluatorExecutable, preparedSLP, coordinates, precision, threads
   ];
-  If[native === $Failed,
+  If[flintResult === $Failed,
     $Failed,
     MapThread[
       assembleCoefficientMatrices,
-      {nodes, native["Values"]}
+      {nodes, flintResult["Values"]}
     ]
   ]
 ];
 
-nativeEvaluator = CHESSNodeEvaluator[scalarFallback, batch];
+flintEvaluator = CHESSNodeEvaluator[scalarFallback, batch];
+
+result = SpectralPropagate[
+  flintEvaluator, boundary, {0, 1},
+  "EpsilonDegree" -> 2
+];
 ```
+
+The explicit positive epsilon degree tells the unified entry that each batch
+item is a polynomial matrix list rather than one canonical matrix.
 
 No compiled process-specific expression is shipped in the package. This keeps
 large generated FORM code and its variable convention out of CHESS, while the
