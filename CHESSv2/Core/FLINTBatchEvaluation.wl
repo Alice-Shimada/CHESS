@@ -57,17 +57,17 @@ CHESSFlintAvailableQ[executable_, slpFile_] :=
 (* FLINT nfloat stores complete machine limbs.  Guard digits are a tunable
    heuristic, not an error bound: cancellation, poles, or large SLP
    intermediates may require substantially more working precision. *)
-CHESSFlintWorkingBits[precision_?NumericQ] :=
-  CHESSFlintWorkingBits[precision, 20];
 CHESSFlintWorkingBits[
   precision_?NumericQ, guardDigits_Integer?NonNegative
 ] := Ceiling[
   (Max[20, Ceiling[N[precision]]] + guardDigits) Log[2, 10]
 ];
 
-(* Fixed-point input prevents the FLINT-side parser from depending on Mathematica's
-   *^ exponent notation.  NumberPadding also makes small path coordinates
-   explicit instead of silently shortening their precision. *)
+(* Fixed-point input prevents the FLINT-side parser from depending on
+   Mathematica's *^ exponent notation.  NumberPadding also makes small path
+   coordinates explicit instead of silently shortening their precision.  It
+   does not create information: callers must supply exact coordinates or
+   approximate coordinates with adequate genuine precision. *)
 CHESSFlintDecimalString[value_?NumericQ, digits_Integer?Positive] := ToString[
   NumberForm[
     N[value, digits],
@@ -162,13 +162,23 @@ Options[CHESSFlintRunSLP] = {
   "Timeout" -> Infinity
 };
 
+(* Keep options unambiguous when the positional thread count is omitted.  The
+   positional-thread definition below retains the historical fail-soft handling
+   of an explicit non-integer thread specification. *)
+CHESSFlintRunSLP[
+  executable_String, slpFile_String, pointRows_?MatrixQ,
+  precision_?NumericQ, opts : OptionsPattern[]
+] := CHESSFlintRunSLP[
+  executable, slpFile, pointRows, precision, 1, opts
+];
+
 (* Evaluate every row in one FLINT process call.  Setup/FORM compilation is outside
    this hot path: callers should prepare the SLP once, then reuse it for every
    propagation.  The returned Association keeps evaluator stdout and timing
    available for diagnostics without changing the batch evaluator's data. *)
 CHESSFlintRunSLP[
   executable_String, slpFile_String, pointRows_?MatrixQ,
-  precision_?NumericQ, threadCount_ : 1, OptionsPattern[]
+  precision_?NumericQ, threadCount_, OptionsPattern[]
 ] := Module[
   {
     executablePath, slpPath, dimensions, threads, digits, bits, tag,

@@ -64,7 +64,7 @@ SpectralPropagate::nativeunsupported =
 SpectralPropagate::nativeresult =
   "ResultData must be Full or Endpoint; received `1`.";
 SpectralPropagate::nativehandle =
-  "The supplied NativeHandle is incompatible with this dimension, interval, node count, or precision.";
+  "The supplied NativeHandle is stale or incompatible with this evaluator, equation mode, dimension, interval, node count, or precision configuration.";
 
 Options[SpectralPropagate] = DeleteDuplicatesBy[
   Join[
@@ -74,8 +74,8 @@ Options[SpectralPropagate] = DeleteDuplicatesBy[
       (* Automatic fake-delta selection.  An integer requests a fixed order. *)
       "DeltaOrder" -> Automatic,
 
-      (* Automatic reserves roughly thirty percent of Precision as guard
-         digits; callers may provide an explicit positive tolerance. *)
+      (* Automatic uses 10^-Floor[0.7 Precision] as the empirical tail target;
+         callers may provide an explicit positive tolerance. *)
       "DeltaTolerance" -> Automatic,
 
       (* Automatic mode fails rather than returning an unconverged sum after
@@ -117,8 +117,7 @@ CHESSCanonicalSegments[
   evaluator_, boundary_?MatrixQ, {x0_, x1_}, canonicalRules_List,
   segments_Integer?Positive
 ] := Module[
-  {precision, points, state, result, allNodes, allValues, segment,
-   segmentFailure},
+  {precision, points, state, result, allNodes, allValues, segmentFailure},
   precision = Replace["Precision" /. canonicalRules, "Precision" -> 160];
   points = N[Subdivide[x0, x1, segments], precision];
   state = boundary;
@@ -154,7 +153,7 @@ CHESSCanonicalSegments[
    the copied canonical core nor leaks WSTP protocol details into public route
    classification. *)
 CHESSRunNativeCanonicalUnified[
-  evaluator_, systemSpec_, boundary_?MatrixQ, interval_, canonicalRules_List,
+  systemSpec_, boundary_?MatrixQ, interval_, canonicalRules_List,
   segments_Integer, regularizedEndpoints_, nativeHandle_, resultData_
 ] := Module[{dimension, handle, tensor, run},
   If[
@@ -217,7 +216,7 @@ CHESSRunCanonicalUnified[
   If[
     resolvedBackend === "Native",
     CHESSRunNativeCanonicalUnified[
-      evaluator, systemSpec, boundary, interval,
+      systemSpec, boundary, interval,
       Join[
         canonicalRules,
         CHESSFilterOptionRules[rules, {"NativeGuardDigits" -> 20}]

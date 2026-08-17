@@ -79,8 +79,8 @@ If[FileExistsQ[outputFile],
 
 setupResult = Quiet @ Check[
   Get[packageFile];
-  {initialPoint, initialValues} = Get[boundaryFile];
-  {finalPoint, finalValues} = Get[referenceFile];
+  initialValues = Last[Get[boundaryFile]];
+  finalValues = Last[Get[referenceFile]];
   True,
   $Failed
 ];

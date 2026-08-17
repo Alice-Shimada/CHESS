@@ -105,11 +105,24 @@ If[StringQ[evaluator] && StringQ[slp] &&
   flintResult = CHESSFlintRunSLP[
     evaluator, slp, {{1, 2, 3, 4, 5, 6, 7}}, 40, 1
   ];
+  flintOptionOnlyResult = CHESSFlintRunSLP[
+    evaluator, slp, {{1, 2, 3, 4, 5, 6, 7}}, 40,
+    "GuardDigits" -> 20
+  ];
+  flintFailSoftThreadResult = CHESSFlintRunSLP[
+    evaluator, slp, {{1, 2, 3, 4, 5, 6, 7}}, 40, Automatic
+  ];
   CheckAssertion[
     "flint-existing-slp-batch-smoke",
     AssociationQ[flintResult] && flintResult["PointCount"] === 1 &&
     flintResult["ValueCount"] > 0 && Dimensions[flintResult["Values"]] ===
-      {1, flintResult["ValueCount"]}
+      {1, flintResult["ValueCount"]} &&
+    AssociationQ[flintOptionOnlyResult] &&
+    flintOptionOnlyResult["Threads"] === 1 &&
+    flintOptionOnlyResult["Values"] === flintResult["Values"] &&
+    AssociationQ[flintFailSoftThreadResult] &&
+    flintFailSoftThreadResult["Threads"] === 1 &&
+    flintFailSoftThreadResult["Values"] === flintResult["Values"]
   ];
   ClearAll[AdapterCoordinates, AdapterAssembly];
   AdapterCoordinates[point_, precision_] :=

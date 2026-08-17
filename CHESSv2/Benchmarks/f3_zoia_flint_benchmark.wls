@@ -84,8 +84,8 @@ threadCount = 8;
   Quiet @ Check[
     Get[packageFile];
     Get[externalBackendFile];
-    {initialPoint, initialValues} = Get[boundaryFile];
-    {finalPoint, finalValues} = Get[referenceFile];
+    initialValues = Last[Get[boundaryFile]];
+    finalValues = Last[Get[referenceFile]];
     True,
     $Failed
   ]

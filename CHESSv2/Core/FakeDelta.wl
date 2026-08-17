@@ -70,7 +70,7 @@ CHESSFakeDeltaRunAtOrder[
   b0_, boundary_?MatrixQ, interval_, order_Integer?NonNegative,
   canonicalRules_List
 ] := Module[
-  {n, physicalColumns, evaluator, fakeBoundary, results, column},
+  {n, physicalColumns, evaluator, fakeBoundary, results},
   n = Dimensions[boundary][[1]];
   physicalColumns = Dimensions[boundary][[2]];
   (* Validate B0 against the physical system size before it reaches the copied
@@ -299,12 +299,11 @@ CHESSFakeDeltaPropagateSingle[
    physical delta=1 state from the previous segment and chooses its own order.
    This is the correct composition law for the actual B0 transport. *)
 CHESSFakeDeltaPropagate[
-  b0_, boundary_?MatrixQ, interval : {x0_, x1_}, canonicalRules_List,
-  opts : OptionsPattern[]
+  b0_, boundary_?MatrixQ, {x0_, x1_}, canonicalRules_List,
+  OptionsPattern[]
 ] := Module[
   {deltaOrder, tolerance, maxOrder, segments, precision, segmentPoints,
-   state, result, allNodes, allValues, segmentInfo, segment, localRules,
-   segmentFailure},
+   state, result, allNodes, allValues, segmentInfo, segmentFailure},
 
   If[Dimensions[boundary][[1]] <= 0 || Dimensions[boundary][[2]] <= 0 ||
       !MatrixQ[boundary, NumericQ],
@@ -341,9 +340,8 @@ CHESSFakeDeltaPropagate[
     Return[$Failed]
   ];
 
-  (* The canonical core itself has no Segments option.  The rule list passed to
-     each single solve must therefore contain canonical options only. *)
-  localRules = canonicalRules;
+  (* Dispatch has already filtered canonicalRules, because the historical
+     canonical core must never receive the fake-delta Segments option. *)
   segmentPoints = N[Subdivide[x0, x1, segments], precision];
   state = boundary;
   allNodes = {};
@@ -356,7 +354,7 @@ CHESSFakeDeltaPropagate[
       b0,
       state,
       {segmentPoints[[segment]], segmentPoints[[segment + 1]]},
-      localRules,
+      canonicalRules,
       deltaOrder,
       tolerance,
       maxOrder

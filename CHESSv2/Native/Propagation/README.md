@@ -36,7 +36,7 @@ The generated `chess_native_link`, object directory, and `wsprep` output are
 ignored by Git. A package checkout therefore never ships an opaque executable.
 
 Source ownership is intentionally narrow: `backend_types.hpp` contains shared
-numeric POD types, `flint_coupled_solver.*` owns every FLINT context/conversion/LU,
+numeric and sparse data types, `flint_coupled_solver.*` owns every FLINT context/conversion/LU,
 and `backend.cpp` owns only the WSTP protocol and transport orchestration.
 
 ## Supported routes
@@ -64,6 +64,16 @@ Mathematica.
 block once. Reuse its handle through the public `"NativeHandle"` option when
 transporting several boundaries. `"ResultData" -> "Endpoint"` avoids caching
 and transferring all node states and is the intended high-throughput mode.
+The preparation signatures are
+
+```wl
+CHESSNativePrepare[matrixSpec, dimension, interval, optionRules]
+CHESSNativePolynomialPrepare[evaluator, boundary, interval, optionRules]
+```
+
+Pass the returned Association back through `"NativeHandle"`; the mixed form
+also requires a positive `"EpsilonDegree"` in `optionRules`.
+
 The public `"Precision"` remains the requested output precision; Native setup
 and propagation use `"NativeGuardDigits" -> 20` extra decimal digits by
 default. The sampled matrix precision is raised when necessary so it is never
@@ -75,10 +85,12 @@ instead of being padded to the guarded precision. The direct mixed FLINT LU
 keeps its existing additional internal margin above the sampled matrix
 precision.
 `CHESSNativePolynomialPrepare` additionally constructs the active component
-list and lets C++ assemble and factorize
-`D (x) I_active - diag(B0)` once. Positive epsilon powers remain sparse RHS
-operators. This preparation is substantial, so the direct mixed route is most
-useful when the handle is reused.
+list. C++ then assembles and factorizes the Kronecker product of `D` with the
+active-space identity minus the block-diagonal matrix whose blocks are
+`B0(t_j)[[active,active]]` at ordinary, non-boundary Lobatto nodes; the boundary
+block is unshifted. Positive epsilon powers remain sparse RHS operators. This
+preparation is substantial, so the direct mixed route is most useful when the
+handle is reused.
 The handle is bound to the evaluator expression, the transitive definitions of
 its Wolfram helper functions, and the numerical setup. Ordinary helper
 redefinitions invalidate it automatically. Mutable external state which is not

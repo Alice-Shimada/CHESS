@@ -1,5 +1,6 @@
 CXX ?= g++
 
+# Override these paths when building outside the development workstation.
 BOOST_INCLUDE ?= /tmp/boost_1_83_0
 WSTP_DIR ?= /usr/local/Wolfram/Mathematica/14.3/SystemFiles/Links/WSTP/DeveloperKit/Linux-x86-64/CompilerAdditions
 FLINT_DIR ?= /home/liuyuanche/MMA_Package/flint-3.4.0

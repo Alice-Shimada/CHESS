@@ -83,11 +83,13 @@ CHESSNativeRun::protocol =
 CHESSNativeRun::precision =
   "Native boundary data contain nonzero approximate values below the requested output precision `1`.";
 
-Module[{coreDirectory, packageDirectory},
-  coreDirectory = DirectoryName[ExpandFileName[$InputFileName]];
-  packageDirectory = DirectoryName[coreDirectory];
-  $CHESSNativeRoot = FileNameJoin[{packageDirectory, "Native", "Propagation"}];
-  $CHESSNativeExecutable = FileNameJoin[{$CHESSNativeRoot, "chess_native_link"}];
+Module[{packageDirectory},
+  packageDirectory = DirectoryName[
+    DirectoryName[ExpandFileName[$InputFileName]]
+  ];
+  $CHESSNativeExecutable = FileNameJoin[{
+    packageDirectory, "Native", "Propagation", "chess_native_link"
+  }];
 ];
 
 (* Get may be called more than once in a notebook.  Preserve a live WSTP link
@@ -98,7 +100,7 @@ If[!IntegerQ[$CHESSNativeGeneration], $CHESSNativeGeneration = 0];
 
 CHESSNativeAvailableQ[] := FileExistsQ[$CHESSNativeExecutable];
 
-CHESSNativeInstall[] := Module[{},
+CHESSNativeInstall[] := (
   If[MatchQ[$CHESSNativeLink, _LinkObject], Return[$CHESSNativeLink]];
   If[!CHESSNativeAvailableQ[],
     Message[CHESSNativeInstall::missing, $CHESSNativeExecutable];
@@ -110,9 +112,9 @@ CHESSNativeInstall[] := Module[{},
     Return[$Failed]
   ];
   $CHESSNativeLink
-];
+);
 
-CHESSNativeUninstall[] := Module[{},
+CHESSNativeUninstall[] := (
   If[MatchQ[$CHESSNativeLink, _LinkObject],
     Quiet @ Check[CHESSNativeBackend`Link`Private`CHESSNativeClear[], Null];
     Quiet @ Check[Uninstall[$CHESSNativeLink], Null]
@@ -120,17 +122,17 @@ CHESSNativeUninstall[] := Module[{},
   $CHESSNativeLink = None;
   $CHESSNativeGeneration++;
   Null
-];
+);
 
 (* Clear only the cached collocation system, leaving the WSTP process alive so
    a later Prepare does not pay process startup again. *)
-CHESSNativeClear[] := Module[{},
+CHESSNativeClear[] := (
   If[MatchQ[$CHESSNativeLink, _LinkObject],
     Quiet @ Check[CHESSNativeBackend`Link`Private`CHESSNativeClear[], Null]
   ];
   $CHESSNativeGeneration++;
   Null
-];
+);
 
 CHESSNativeNumberString[value_, precision_] :=
   ToString[FortranForm[N[value, precision]]];
@@ -171,7 +173,7 @@ CHESSNativeParseComplexValues[tokens_List, precision_] := MapThread[
 ];
 
 (* Never manufacture precision by serializing a machine number with a longer
-   decimal format.  Exact numbers and exact zeros are safe at any requested
+   decimal format.  Exact numbers and numerical zeros are safe at any requested
    precision; every other value must carry enough genuine arbitrary-precision
    information before it may enter the Native backend. *)
 CHESSNativeValuePrecisionQ[value_?NumberQ, requiredPrecision_Integer] :=
@@ -500,7 +502,7 @@ CHESSNativePolynomialPrepare[
     dimension, threads, collocation, nodes, publicNodes, scalarMatrix,
     ordinaryValues,
     matricesByNode, zeroMatrices, b0Nodes, active, flintBits, setupFile, stream,
-    loadSeconds, loadResult, tag, Cleanup, node, power
+    loadSeconds, loadResult, tag, Cleanup
   },
   nodesOption = CHESSNativeOptionValue[rules, "Nodes", 48];
   precision = CHESSNativeOptionValue[rules, "Precision", 160];
@@ -955,11 +957,9 @@ CHESSNativeCanonicalResult[
   handle_Association, run_Association, resultData_
 ] := Module[
   {
-    layers, dimension, outputPrecision, endpoint, fetched, states,
-    nodeValues
+    layers, outputPrecision, endpoint, fetched, states, nodeValues
   },
   layers = Lookup[run, "Layers"];
-  dimension = Lookup[handle, "Dimension"];
   outputPrecision = Lookup[handle, "Precision"];
   endpoint = N[
     Transpose[First[Lookup[run, "EndpointLayers"]]], outputPrecision
@@ -1151,13 +1151,13 @@ CHESSNativeFakeDeltaPropagateSingle[
    handle is interval-specific, so it is accepted only for a single segment;
    segmented native propagation prepares one cached system per subinterval. *)
 CHESSNativeFakeDeltaPropagate[
-  b0_, boundary_?MatrixQ, interval : {x0_, x1_}, canonicalRules_List,
+  b0_, boundary_?MatrixQ, {x0_, x1_}, canonicalRules_List,
   deltaOrder_, tolerance_, maxOrder_Integer, segments_Integer?Positive,
   nativeHandle_, resultData_
 ] := Module[
   {
     precision, precisionA, guardDigits, nativePrecision, nativePrecisionA,
-    segmentPoints, state, result, allNodes, allValues, segmentInfo, segment,
+    segmentPoints, state, result, allNodes, allValues, segmentInfo,
     localHandle, segmentFailure
   },
   If[segments > 1 && nativeHandle =!= Automatic,

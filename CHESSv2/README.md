@@ -25,6 +25,18 @@ acronym and spelling the library name as `Flint`, for example
 `CHESSFlintRunSLP`. The former `CHESSFLINT*` spellings are intentionally not
 kept as compatibility aliases on the experimental branch.
 
+## Primary interfaces
+
+| Function | Purpose |
+|---|---|
+| `SpectralPropagate` | unified differential-equation transport entry |
+| `CHESSNodeEvaluator` | scalar plus multipoint matrix-evaluator contract |
+| `CHESSNativeMatrixAdapter` | adapt Wolfram coefficient matrices to Native transport |
+| `CHESSNativeFlintMatrixAdapter` | adapt FORM/FLINT multipoint output to Native transport |
+| `CHESSNativePrepare` | prepare a reusable canonical or `B0` Native handle |
+| `CHESSNativePolynomialPrepare` | prepare a reusable direct mixed Native handle |
+| `CHESSFlintRunSLP` | run a prepared FORM straight-line program with FLINT |
+
 ## Equation convention and routing
 
 CHESSv2 solves
@@ -45,8 +57,9 @@ SpectralPropagate[{B0, B1, B2}, boundary, {t0, t1}, options]
 | `B1` only | original canonical sequential-epsilon solver |
 | mixed `B0,B1,...` or higher powers | original active-support non-canonical solver |
 
-Only literal zero and exact zero constant matrices are classified as zero.
-CHESSv2 does not sample a function and guess that it vanishes.
+Numerical zero and constant matrices whose stored entries are all numerically
+zero are classified as zero. CHESSv2 does not sample a function and guess that
+it vanishes.
 
 For compatibility with canonical notebooks, a bare evaluator is interpreted as
 `B1`:
@@ -143,6 +156,9 @@ CHESSFlintRunSLP[executable, slpFile, pointRows, precision, threads]
 FORM may optimize large exact expressions into a straight-line program. FLINT
 then evaluates every requested point with `nfloat` arithmetic and returns the
 lossless `NFLOAT01` binary encoding of those finite-precision values.
+`threads` is optional and defaults to `1`. Input coordinates must be exact or
+already carry enough genuine precision; formatting a machine number with more
+digits does not make it an accurate arbitrary-precision coordinate.
 
 The default 20 guard digits are a heuristic, not a rigorous error bound. Near a
 pole or under severe cancellation, increase `"GuardDigits"` or set
@@ -191,10 +207,12 @@ Supported native routes are:
 - one regular mixed polynomial `CHESSNodeEvaluator` batch with an explicit
   positive `"EpsilonDegree"` and non-empty `B0` active support.
 
-The mixed route directly constructs
-`D tensor I_active - diag(B0)` and factorizes it with FLINT
-`nfloat_complex`; it does not use an auxiliary-delta series. Remaining inactive
-components reuse the scalar Lobatto LU.
+The mixed route directly constructs the collocation operator formed from the
+Kronecker product of `D` with the active-space identity minus the block-diagonal
+matrix whose ordinary-node blocks are `B0(t_j)[[active,active]]`; the boundary
+block is unshifted. FLINT `nfloat_complex` factorizes this operator without an
+auxiliary-delta series. Remaining inactive components reuse the scalar Lobatto
+LU.
 
 This direct mixed native capability is batch-only. An explicit Native request
 for an ordinary `{B0,B1,...}` coefficient list fails rather than silently
@@ -204,6 +222,33 @@ Prepared handles may be reused through `"NativeHandle"`. A handle is bound to
 the evaluator definitions, interval, dimension, node count, requested
 precision, and Native guard precision. Ordinary Wolfram definition changes
 invalidate it automatically.
+
+For a canonical evaluator, prepare once and reuse the handle explicitly:
+
+```wl
+nativeRules = {
+  "Nodes" -> 96,
+  "Precision" -> 100,
+  "WorkingPrecisionA" -> 140,
+  "NativeGuardDigits" -> 20
+};
+
+handle = CHESSNativePrepare[
+  B1, Length[boundary], {0, 1}, nativeRules
+];
+
+result = SpectralPropagate[
+  B1, boundary, {0, 1},
+  Sequence @@ nativeRules,
+  "NumericalBackend" -> "Native",
+  "NativeHandle" -> handle,
+  "ResultData" -> "Endpoint"
+];
+```
+
+For a direct mixed polynomial batch, use
+`CHESSNativePolynomialPrepare[evaluator,boundary,interval,nativeRules]`; the
+rule list must also contain a positive `"EpsilonDegree"`.
 
 Native propagation uses 20 guard digits by default: `"Precision" -> p`
 returns a result at the requested precision while the base Native transport,
@@ -297,7 +342,7 @@ Core/Dispatch.wl              unified SpectralPropagate routing
 Native/Propagation/           C++/FLINT propagation backend
   src/backend.cpp             WSTP protocol and transport orchestration
   src/flint_coupled_solver.*  FLINT contexts, conversion, direct LU and solve
-  src/backend_types.hpp       shared numerical POD types
+  src/backend_types.hpp       shared numerical and sparse data types
 FLINT/                        expression-evaluator documentation
 Tests/                        current regression tests
 Benchmarks/                   reproducible performance studies

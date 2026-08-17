@@ -23,6 +23,26 @@ executable evaluate SLP POINTS BITS THREADS OUTPUT
 the little-endian `NFLOAT01` binary format; the result Association contains its
 arbitrary-precision values under `"Values"`.
 
+Input coordinates must be exact or already carry enough genuine precision for
+the requested calculation. Decimal formatting cannot promote a machine number
+to an accurate arbitrary-precision coordinate. The optional `threads` argument
+defaults to `1`; evaluator options may follow `precision` directly when the
+thread count is omitted.
+
+The returned Association has the following stable fields:
+
+| Key | Meaning |
+|---|---|
+| `"Version"` | `NFLOAT01` format version |
+| `"LimbCount"` | limbs stored per finite value |
+| `"PointCount"` | number of evaluated input rows |
+| `"ValueCount"` | scalar outputs per row |
+| `"Values"` | decoded arbitrary-precision value matrix |
+| `"Bits"` | FLINT working precision in bits |
+| `"Threads"` | effective evaluator thread count |
+| `"FLINTProcessSeconds"` | external evaluator wall time |
+| `"StandardOutput"` | captured evaluator standard output |
+
 The default `"GuardDigits" -> 20` is only a working-precision heuristic. It
 cannot bound cancellation, proximity to a pole, or intermediate expression
 growth. Callers can raise `"GuardDigits"`, set `"WorkingBits"` explicitly, and

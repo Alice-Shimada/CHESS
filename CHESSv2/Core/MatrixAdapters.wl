@@ -144,6 +144,8 @@ CHESSCanonicalNodeEvaluator[
     point,
     CHESSUnifiedEvaluateMatrix[spec, point, 200, expectedDimensions]
   ],
+  (* threads is part of the stable batch contract.  This generic Wolfram
+     adapter is intentionally serial; specialized evaluators may use it. *)
   Function[{points, precision, threads}, Module[{values},
     values = CHESSUnifiedEvaluateMatrix[
       spec, #, precision, expectedDimensions
@@ -169,8 +171,8 @@ CHESSCheckedCanonicalPropagate[
 
 (* Automatic routing must be structural, not tolerance based.  A user function
    which happens to be tiny or happens to vanish at one sampled point is still
-   a genuine coefficient.  Only literal zero or an exactly zero constant matrix
-   is classified as absent. *)
+   a genuine coefficient.  Only a numerical zero or a constant matrix whose
+   stored entries are all numerically zero is classified as absent. *)
 CHESSStructuralZeroCoefficientQ[spec_] := Module[{rules},
   If[TrueQ[PossibleZeroQ[spec]], Return[True]];
   If[!MatrixQ[spec], Return[False]];
@@ -194,6 +196,8 @@ CHESSNormalizePolynomialSpec[specs_List, boundary_?MatrixQ] := Module[
     Which[
       CHESSStructuralZeroCoefficientQ[entry],
         With[{localDims = dims},
+          (* Keep the two-argument evaluator contract even though a structural
+             zero is independent of both the point and the precision. *)
           Function[{point, precision}, SparseArray[{}, localDims]]
         ],
       MatrixQ[entry],
@@ -202,6 +206,8 @@ CHESSNormalizePolynomialSpec[specs_List, boundary_?MatrixQ] := Module[
           normalizationFailure = True;
           $Failed,
           With[{matrix = entry},
+            (* point is retained because every normalized coefficient must be
+               callable through the same two-argument interface. *)
             Function[{point, precision}, SparseArray @ N[matrix, precision]]
           ]
         ],

@@ -78,6 +78,8 @@ CHESSNativeMatrixAdapter[
         localSpecs, point, precision, localDimensions
       ]
     ],
+    (* Keep threads in the shared batch signature; this built-in wrapper is
+       serial because arbitrary Wolfram evaluators may not be thread-safe. *)
     Function[{points, precision, threads}, Module[{values},
       values = CHESSNativeEvaluateCoefficientList[
         localSpecs, #, precision, localDimensions
@@ -110,6 +112,8 @@ CHESSNativeMatrixAdapter[
           localExpressions, localVariable, point, precision, localDimensions
         ]
       ],
+      (* Expression substitution is intentionally serial for the same contract
+         and thread-safety reasons as the coefficient-list adapter above. *)
       Function[{points, precision, threads}, Module[{values},
         values = CHESSNativeEvaluateExpressionList[
           localExpressions, localVariable, #, precision, localDimensions

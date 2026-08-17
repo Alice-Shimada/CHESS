@@ -9,6 +9,9 @@
 #include <string>
 #include <vector>
 
+// Owns the FLINT nfloat contexts and one pre-factorized active-support system
+// for direct regular B0+B1+... transport.  The class is intentionally isolated
+// from WSTP and from the sequential canonical backend.
 class FlintCoupledSolver {
 public:
     FlintCoupledSolver(
@@ -28,6 +31,8 @@ public:
     std::vector<Complex> Solve(const std::vector<Complex>& rhs);
 
 private:
+    // decimalPrecision controls MPFR/string conversion.  FLINT itself uses the
+    // independently supplied binary precision stored in its contexts.
     int decimalPrecision;
     int dimension;
     gr_ctx_t realContext;
