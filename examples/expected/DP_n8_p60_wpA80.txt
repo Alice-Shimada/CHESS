@@ -1,4 +1,0 @@
-CHESS_RELEASE_EXAMPLE case=DP nodes=8 kernels=1 precision=60 precisionA=80
-setupLabel=DP physical-region transport matrixDimensions={267, 267} boundaryDimensions={267, 7} regularizedEndpoints={}
-resultDimensions={267, 7} wallTimeSeconds=1.056754 referenceLabel=AMFlow physical-region point maxReferenceError=3.570422537986528e-10
-endpointInfo={} finalChecksum=-4684.15836954968742693799911133838676363021`20.150077065580497 - 210.46354440993546544542986818861253569125`18.802622375670232*I

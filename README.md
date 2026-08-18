@@ -1,110 +1,174 @@
 # CHESS
 
-CHESS is a Wolfram Language package for Chebyshev pseudo-spectral transport of
-canonical Feynman-integral differential equations along one-dimensional
-kinematic paths.
+CHESS is a high-precision Chebyshev--Lobatto spectral transport package for
+systems of differential equations arising in Feynman-integral calculations.
+The `experiment` branch contains CHESSv2, which unifies canonical,
+non-canonical, and auxiliary-parameter propagation behind one Wolfram Language
+entry point and provides optional C++ and FORM/FLINT numerical backends.
 
-## Contents
+The original release package remains available as `Chess.wl`. New development,
+tests, and backend integration live under `CHESSv2/`.
 
-- `Chess.wl` - the package.
-- `examples/run_example.wls` - runnable examples matching the paper benchmarks.
-- `examples/run_tests.wls` - lightweight pass/fail smoke tests.
-- `examples/BHB_family_example.nb` - a detailed notebook for the 3L5P BHB
-  workflow.
-- `examples/expected/` - sample outputs for the smoke-test settings.
-- `data/` - matrices, prepared one-dimensional letters, boundary values, and
-  references needed by the examples.
+## Highlights
 
-No benchmark logs, paper source files, development scripts, or temporary files
-are included in this release archive.
+- one public `SpectralPropagate` function for canonical and polynomial-
+  epsilon systems;
+- automatic routing for pure `B0`, pure `B1`, and mixed
+  `B0 + epsilon B1 + ...` equations;
+- endpoint regularization through the verified Mathematica cores;
+- automatic auxiliary-delta order selection for regular `B0`-only systems;
+- arbitrary-precision C++ transport using MPFR/MPC and OpenMP;
+- direct FLINT `nfloat_complex` factorization for regular mixed active blocks;
+- FORM/FLINT multipoint evaluation for large generated expressions;
+- reusable Native handles for repeated boundary transports;
+- fail-closed dimension, precision, protocol, and convergence checks.
 
 ## Requirements
 
-- Wolfram Mathematica / WolframScript 13.0 or newer.
+The current package and test suite are validated with Mathematica 14.3 through
+WolframScript 1.13.0. The optional Native backend additionally requires a C++17
+compiler, WSTP, Boost.Multiprecision, MPFR, MPC, GMP, FLINT, and OpenMP. Build
+paths are configurable in `CHESSv2/Native/Propagation/Makefile`.
 
-The bundled examples have been smoke-tested with Mathematica 14.3.  Earlier
-13.x versions should work because the package uses standard Wolfram Language
-functions, and the previous release smoke tests were checked on 13.0.1.
+## Quick start
 
-## Examples
+Load CHESSv2 directly:
 
-From this directory:
-
-```bash
-wolframscript -file examples/run_example.wls DP
+```wl
+Get["/path/to/CHESS/CHESSv2/CHESSv2.wl"];
 ```
 
-Arguments are:
+No context prefix is required:
 
-```bash
-wolframscript -file examples/run_example.wls CASE NODES KERNELS PRECISION PRECISION_A
+```wl
+result = SpectralPropagate[
+  {B0, B1, B2},
+  boundary,
+  {0, 1},
+  "Nodes" -> 48,
+  "Precision" -> 100,
+  "WorkingPrecisionA" -> 140
+];
 ```
 
-Available cases:
+The equation convention is
 
-- `DP` - two-loop six-point DP physical-region transport, no endpoint
-  regularization, checked against the bundled AMFlow value.
-- `PBB`, `BPB`, `BHB`, `PBP` - three-loop five-point planar families, using
-  left-endpoint regularization at the maximally symmetric Euclidean point.
-- `NPTB` - two-loop non-planar triangle family (b) using the full
-  18-dimensional direct matrix evaluator with elliptic periods, checked
-  against bundled AMFlow endpoint values.
-
-Small smoke-style runs:
-
-```bash
-wolframscript -file examples/run_example.wls DP 8 1 60 80
-wolframscript -file examples/run_example.wls PBB 8 1 60 80
-wolframscript -file examples/run_example.wls BPB 8 1 60 80
-wolframscript -file examples/run_example.wls BHB 8 1 60 80
-wolframscript -file examples/run_example.wls PBP 8 1 60 80
-wolframscript -file examples/run_example.wls NPTB 48 1 100 140
+```text
+dY(t,epsilon)/dt =
+  (B0(t) + epsilon B1(t) + epsilon^2 B2(t) + ...) Y(t,epsilon).
 ```
 
-Paper-scale runs use larger node counts and more kernels.  For example, the
-paper uses 72, 96, and 120 nodes for the DP physical-region convergence table,
-96 and 120 nodes for the 3L5P node-convergence comparison, and node counts from
-96 to 512 for the non-planar triangle direct-matrix benchmark.
+| Matrix specification | Route |
+|---|---|
+| `B1` or `{0,B1}` | canonical sequential-epsilon solver |
+| `{B0}` | auxiliary-delta recursion |
+| `{B0,B1,...}` | active-support non-canonical solver |
 
-The runner prints matrix dimensions, endpoint mode, runtime, endpoint
-diagnostics, a final-state checksum, and a reference error when a reference is
-bundled.
+A bare evaluator is interpreted as `B1` for compatibility with canonical CHESS
+notebooks. Routing is structural: CHESSv2 never samples a function and guesses
+that it is zero.
 
-## Smoke Tests
+## Matrix evaluators
 
-Run all lightweight release checks with:
+Coefficient functions may use any established CHESS calling convention:
 
-```bash
-wolframscript -file examples/run_tests.wls
+```wl
+Bp[t_, "Precision" -> p_] := ...
+Bp[t_, p_] := ...
+Bp[t_] := ...
 ```
 
-A successful run terminates with exit code 0 and prints
-`CHESS_RELEASE_TESTS_PASSED`.
+For expensive multipoint evaluation, provide both scalar and batch functions:
 
-The smoke tests use one kernel and low node counts.  They verify numerical
-agreement for the DP and NPTB examples and successful endpoint-regularized
-completion for the four 3L5P families.
+```wl
+CHESSNodeEvaluator[scalarEvaluator, batchEvaluator]
+```
 
-## Input Convention
+The batch signature is
+`batchEvaluator[nodes, precision, threads]`. If each batch item is a complete
+coefficient list `{B0,B1,...}`, also set a positive `"EpsilonDegree"`.
 
-For a standard dlog problem, provide:
+## Optional Native backend
 
-- `Atilde`: a matrix whose entries are linear combinations of `Log[W[i]]` or
-  `logW[i]`;
-- `dLettersLine`: a list where `dLettersLine[[i]]` is
-  `d log(W_i(x(t))) / dt`;
-- `boundaryValues`: an `nIntegrals x nEpsilonOrders` matrix of epsilon
-  coefficients at the left endpoint;
-- a path interval, usually `{0, 1}`.
+Build the propagation executable:
 
-The package core supports the unified `W`/`logW` convention.  Case-specific
-letter heads, such as legacy `Wtilde` or `What`, are converted in the examples
-before calling `CHESSAtildeLinearData[]`.
+```bash
+make -C CHESSv2/Native/Propagation
+```
 
-The NPTB example shows the more general interface: users may supply any
-matrix-valued function `nAfun[t]`, not necessarily one assembled from prepared
-dlog letters.  In that example the runner evaluates the full 18-dimensional
-family-b matrix from Ref. arXiv:2305.13951 directly on the path `y=1/100` to
-`y=1/20`; the matrix entries include the period `psi0(y)`, built from
-Mathematica's `EllipticK[m]`, the complete elliptic integral of the first kind
-with parameter `m = k^2`.  The release example does not evaluate `EllipticE`.
+Enable it on a supported regular path:
+
+```wl
+nativeResult = SpectralPropagate[
+  {B0}, boundary, {0, 1},
+  "Nodes" -> 96,
+  "Precision" -> 100,
+  "WorkingPrecisionA" -> 140,
+  "NumericalBackend" -> "Native",
+  "ResultData" -> "Endpoint"
+];
+```
+
+Native arithmetic uses 20 guard digits by default. Thus `"Precision" -> p`
+keeps the public result at `p` digits while the base C++ transport uses
+`p + 20`. Set `"NativeGuardDigits" -> 0` to reproduce the historical
+no-guard behavior, or increase it for a difficult system. Low-precision
+nonzero matrices, boundaries, and interval endpoints are rejected rather than
+padded to a misleading arbitrary precision.
+
+For repeated transports, prepare and reuse a `"NativeHandle"`; setup includes
+matrix sampling, serialization, and LU factorization and can dominate a
+one-shot calculation.
+
+## FORM/FLINT expression evaluation
+
+`CHESSFlintRunSLP` evaluates a prepared FORM straight-line program at all path
+nodes in one FLINT process. `CHESSNativeFlintMatrixAdapter` combines that batch
+evaluator with problem-specific coordinate and matrix-assembly functions.
+Generated process-specific SLPs are intentionally not embedded in the package.
+
+## Supported Native routes
+
+- one regular canonical interval;
+- regular `B0`-only propagation, including regular segmentation;
+- one regular mixed polynomial batch with nonempty `B0` active support;
+- multiple physical boundary columns;
+- full node data or endpoint-only output.
+
+Singular endpoint regularization and unsupported mixed/segmented combinations
+remain on the Mathematica route or fail closed.
+
+## Repository layout
+
+```text
+Chess.wl                       original release package
+CHESSv2/CHESSv2.wl             modular loader
+CHESSv2/Core/                  Wolfram routing and numerical modules
+CHESSv2/Native/Propagation/    C++/MPFR/MPC/FLINT backend
+CHESSv2/FLINT/                 FORM/FLINT protocol documentation
+CHESSv2/Tests/                 regression and backend tests
+CHESSv2/Benchmarks/            reproducible performance studies
+```
+
+## Tests
+
+```bash
+wolframscript -file CHESSv2/Tests/run_all.wls
+wolframscript -file CHESSv2/Tests/test_native_backend.wls
+wolframscript -file CHESSv2/Tests/test_flint_evaluation.wls
+```
+
+The Native suite requires a compiled backend. The real F3 FLINT smoke test is
+enabled with `CHESSV2_FLINT_EVALUATOR` and `CHESSV2_FLINT_SLP`.
+
+## Documentation
+
+- [CHESSv2 reference and usage](CHESSv2/README.md)
+- [FORM/FLINT batch interface](CHESSv2/FLINT/README.md)
+- [C++ propagation backend](CHESSv2/Native/Propagation/README.md)
+- [PBB64 Native benchmark](CHESSv2/Benchmarks/PBB64_NATIVE_BENCHMARK.md)
+- [Simone Zoia F3 benchmark](CHESSv2/Benchmarks/F3_ZOIA_FLINT_BENCHMARK.md)
+
+Benchmark reports state their timing boundaries explicitly. They measure
+matrix evaluation or differential-equation transport, not complete IBP or
+boundary-generation workflows.

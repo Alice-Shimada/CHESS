@@ -1,0 +1,3 @@
+build/
+chess_native_link
+src/linktm.cpp
